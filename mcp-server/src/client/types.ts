@@ -43,3 +43,36 @@ export interface Position {
   UnrealizedPnL: number;
   Leverage: number;
 }
+
+// --- Order Types ---
+
+export interface Order {
+  orderId: number;
+  symbol: string;
+  status: string;
+  clientOrderId: string;
+  price: string;
+  avgPrice: string;
+  origQty: string;
+  executedQty: string;
+  type: string;
+  side: string;
+  stopPrice: string;
+  timeInForce: string;
+  updateTime: number;
+}
+
+export interface OrderPreview {
+  plan_id: string;
+  symbol: string;
+  side: string;
+  type: string;
+  quantity: number;
+  price: number;
+  stop_price: number;
+  risk: {
+    passed: boolean;
+    checks: string[];
+    warnings: string[] | null;
+  };
+}

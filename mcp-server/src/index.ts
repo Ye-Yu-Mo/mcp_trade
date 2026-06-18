@@ -5,6 +5,7 @@ import { loadConfig } from "./config.js";
 import { TradingClient } from "./client/trading.js";
 import { registerMarketTools } from "./tools/market.js";
 import { registerAccountTools } from "./tools/account.js";
+import { registerOrderTools } from "./tools/order.js";
 
 async function main() {
   const cfg = loadConfig();
@@ -18,6 +19,7 @@ async function main() {
 
   registerMarketTools(server, client);
   registerAccountTools(server, client);
+  registerOrderTools(server, client);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

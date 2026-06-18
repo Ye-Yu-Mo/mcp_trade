@@ -1,4 +1,4 @@
-import type { Kline, Ticker, OrderBook, Balance, Position } from "./types.js";
+import type { Kline, Ticker, OrderBook, Balance, Position, Order, OrderPreview } from "./types.js";
 
 export class TradingClient {
   constructor(
@@ -8,6 +8,36 @@ export class TradingClient {
 
   private async get<T>(path: string): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
+      headers: { Authorization: `Bearer ${this.token}` },
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      const err = body?.error ?? { code: "UNKNOWN", message: `HTTP ${res.status}` };
+      throw new Error(`[${err.code}] ${err.message}`);
+    }
+    return body.data as T;
+  }
+
+  private async post<T>(path: string, body: URLSearchParams): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body.toString(),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      const err = json?.error ?? { code: "UNKNOWN", message: `HTTP ${res.status}` };
+      throw new Error(`[${err.code}] ${err.message}`);
+    }
+    return json.data as T;
+  }
+
+  private async del<T>(path: string): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "DELETE",
       headers: { Authorization: `Bearer ${this.token}` },
     });
     const body = await res.json();
@@ -38,5 +68,65 @@ export class TradingClient {
 
   async getPositions(): Promise<Position[]> {
     return this.get<Position[]>("/api/v1/account/positions");
+  }
+
+  // --- Order methods ---
+
+  async previewOrder(params: {
+    symbol: string;
+    side: string;
+    type: string;
+    quantity: number;
+    price?: number;
+    stopPrice?: number;
+    positionSide?: string;
+  }): Promise<OrderPreview> {
+    const form = new URLSearchParams();
+    form.set("symbol", params.symbol);
+    form.set("side", params.side);
+    form.set("type", params.type);
+    form.set("quantity", String(params.quantity));
+    if (params.price) form.set("price", String(params.price));
+    if (params.stopPrice) form.set("stop_price", String(params.stopPrice));
+    if (params.positionSide) form.set("position_side", params.positionSide);
+    return this.post<OrderPreview>("/api/v1/order/place", form);
+  }
+
+  async placeOrder(params: {
+    symbol: string;
+    side: string;
+    type: string;
+    quantity: number;
+    price?: number;
+    stopPrice?: number;
+    positionSide?: string;
+    planId: string;
+  }): Promise<Order> {
+    const form = new URLSearchParams();
+    form.set("symbol", params.symbol);
+    form.set("side", params.side);
+    form.set("type", params.type);
+    form.set("quantity", String(params.quantity));
+    if (params.price) form.set("price", String(params.price));
+    if (params.stopPrice) form.set("stop_price", String(params.stopPrice));
+    if (params.positionSide) form.set("position_side", params.positionSide);
+    form.set("confirm", "true");
+    form.set("plan_id", params.planId);
+    return this.post<Order>("/api/v1/order/place", form);
+  }
+
+  async cancelOrder(symbol: string, orderId: number): Promise<Order> {
+    return this.del<Order>(`/api/v1/order/cancel?symbol=${symbol}&order_id=${orderId}`);
+  }
+
+  async getOpenOrders(symbol?: string): Promise<Order[]> {
+    const path = symbol
+      ? `/api/v1/order/list?symbol=${symbol}`
+      : "/api/v1/order/list";
+    return this.get<Order[]>(path);
+  }
+
+  async getOrder(symbol: string, orderId: number): Promise<Order> {
+    return this.get<Order>(`/api/v1/order/status?symbol=${symbol}&order_id=${orderId}`);
   }
 }
