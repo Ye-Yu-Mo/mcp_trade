@@ -15,6 +15,8 @@ type Trader interface {
 	ScanMarket(limit int) ([]ScannerResult, error)
 	GetFundingRate(symbol string) (float64, int64, error)
 	GetOpenInterest(symbol string) (float64, error)
+	CreateOCOOrder(symbol, side string, quantity, price, stopPrice float64) (*OCOOrder, error)
+	CancelOCOOrder(symbol string, orderListID int64) error
 }
 
 // Compile-time check: Client implements Trader.

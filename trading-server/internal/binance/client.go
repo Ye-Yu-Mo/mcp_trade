@@ -613,3 +613,56 @@ func (c *Client) GetOpenInterest(symbol string) (float64, error) {
 	oi, _ := strconv.ParseFloat(raw.OpenInterest, 64)
 	return oi, nil
 }
+
+// --- OCO Order ---
+
+type ocoOrderRaw struct {
+	OrderListID    int64      `json:"orderListId"`
+	Orders         []orderRaw `json:"orders"`
+	OrderReports   []orderRaw `json:"orderReports"`
+}
+
+// OCOOrder represents a One-Cancels-Other order pair.
+type OCOOrder struct {
+	OrderListID int64   `json:"orderListId"`
+	StopOrder   *Order  `json:"stop_order"`
+	LimitOrder  *Order  `json:"limit_order"`
+}
+
+// CreateOCOOrder places an OCO (One-Cancels-Other) order — a take-profit limit
+// and a stop-loss stop-market order. When one triggers, the other cancels.
+func (c *Client) CreateOCOOrder(symbol, side string, quantity, price, stopPrice float64) (*OCOOrder, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("side", side)
+	params.Set("quantity", strconv.FormatFloat(quantity, 'f', -1, 64))
+	params.Set("price", strconv.FormatFloat(price, 'f', -1, 64))       // take-profit limit
+	params.Set("stopPrice", strconv.FormatFloat(stopPrice, 'f', -1, 64)) // stop-loss trigger
+	params.Set("stopLimitPrice", "0") // 0 = stop-market
+	params.Set("stopLimitTimeInForce", "GTC")
+
+	body, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/order/oco", params, true)
+	if err != nil {
+		return nil, err
+	}
+	var raw ocoOrderRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse OCO: %w", err)
+	}
+
+	result := &OCOOrder{OrderListID: raw.OrderListID}
+	if len(raw.OrderReports) >= 2 {
+		result.StopOrder = raw.OrderReports[0].toOrder()
+		result.LimitOrder = raw.OrderReports[1].toOrder()
+	}
+	return result, nil
+}
+
+// CancelOCOOrder cancels an OCO order pair by orderListId.
+func (c *Client) CancelOCOOrder(symbol string, orderListID int64) error {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("orderListId", strconv.FormatInt(orderListID, 10))
+	_, err := c.request(context.Background(), http.MethodDelete, "/fapi/v1/orderList", params, true)
+	return err
+}

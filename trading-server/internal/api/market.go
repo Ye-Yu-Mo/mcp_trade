@@ -97,13 +97,17 @@ func (h *MarketHandler) HandleTicker(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, ticker)
 }
 
-// HandleWatch handles GET /api/v1/market/watch — returns all cached market data.
+// HandleWatch handles GET /api/v1/market/watch — returns all cached market data + triggered alerts.
 func (h *MarketHandler) HandleWatch(w http.ResponseWriter, r *http.Request) {
 	if h.cache == nil {
 		Error(w, http.StatusInternalServerError, CodeNoCache, "market cache not initialized")
 		return
 	}
-	JSON(w, http.StatusOK, h.cache.Snapshot())
+	snapshot := h.cache.Snapshot()
+	if h.alertStore != nil {
+		snapshot["triggered_alerts"] = h.alertStore.ListTriggered()
+	}
+	JSON(w, http.StatusOK, snapshot)
 }
 
 // HandleCalendar handles GET /api/v1/market/calendar — returns upcoming economic events.

@@ -239,3 +239,116 @@ func (h *OrderHandler) HandleOrderStatus(w http.ResponseWriter, r *http.Request)
 
 	JSON(w, http.StatusOK, order)
 }
+
+// HandleModifyStop handles POST /api/v1/order/modify_stop — replaces existing stop loss.
+func (h *OrderHandler) HandleModifyStop(w http.ResponseWriter, r *http.Request) {
+	symbol := r.FormValue("symbol")
+	oldOrderIDStr := r.FormValue("old_order_id")
+	newStopStr := r.FormValue("new_stop_price")
+
+	if symbol == "" || oldOrderIDStr == "" || newStopStr == "" {
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol, old_order_id, new_stop_price are required")
+		return
+	}
+	oldOrderID, err := strconv.ParseInt(oldOrderIDStr, 10, 64)
+	if err != nil {
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "invalid old_order_id")
+		return
+	}
+	newStop, err := strconv.ParseFloat(newStopStr, 64)
+	if err != nil || newStop <= 0 {
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "invalid new_stop_price")
+		return
+	}
+
+	// Cancel old stop
+	if _, err := h.client.CancelOrder(symbol, oldOrderID); err != nil {
+		Error(w, http.StatusInternalServerError, CodeCancelFailed, fmt.Sprintf("cancel old stop: %v", err))
+		return
+	}
+
+	// Place new STOP_MARKET with reduce_only
+	req := binance.NewOrderRequest{
+		Symbol:       symbol,
+		Side:         r.FormValue("side"), // SELL for long, BUY for short
+		PositionSide: r.FormValue("position_side"),
+		OrderType:    "STOP_MARKET",
+		Quantity:     qtyFromForm(r, "quantity"),
+		StopPrice:    newStop,
+		ReduceOnly:   true,
+	}
+	if req.Side == "" {
+		req.Side = "SELL"
+	}
+
+	order, err := h.client.CreateOrder(req)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, CodeOrderFailed, fmt.Sprintf("new stop: %v", err))
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"cancelled_order": oldOrderID,
+		"new_stop":        order,
+	})
+}
+
+func qtyFromForm(r *http.Request, key string) float64 {
+	qty, _ := strconv.ParseFloat(r.FormValue(key), 64)
+	return qty
+}
+
+// HandleOCOOrder handles POST /api/v1/order/oco — One-Cancels-Other (止盈+止损).
+func (h *OrderHandler) HandleOCOOrder(w http.ResponseWriter, r *http.Request) {
+	symbol := r.FormValue("symbol")
+	side := r.FormValue("side")
+	qtyStr := r.FormValue("quantity")
+	priceStr := r.FormValue("price")
+	stopPriceStr := r.FormValue("stop_price")
+
+	if symbol == "" || side == "" || qtyStr == "" || priceStr == "" || stopPriceStr == "" {
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol, side, quantity, price, stop_price are required")
+		return
+	}
+	qty, err := strconv.ParseFloat(qtyStr, 64)
+	if err != nil || qty <= 0 {
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "invalid quantity")
+		return
+	}
+	price, err := strconv.ParseFloat(priceStr, 64)
+	if err != nil || price <= 0 {
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "invalid price")
+		return
+	}
+	stopPrice, err := strconv.ParseFloat(stopPriceStr, 64)
+	if err != nil || stopPrice <= 0 {
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "invalid stop_price")
+		return
+	}
+
+	result, err := h.client.CreateOCOOrder(symbol, side, qty, price, stopPrice)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, CodeOrderFailed, err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, result)
+}
+
+// HandleCancelOCO handles DELETE /api/v1/order/oco — cancels an OCO pair.
+func (h *OrderHandler) HandleCancelOCO(w http.ResponseWriter, r *http.Request) {
+	symbol := r.URL.Query().Get("symbol")
+	listIDStr := r.URL.Query().Get("order_list_id")
+	if symbol == "" || listIDStr == "" {
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol and order_list_id are required")
+		return
+	}
+	listID, err := strconv.ParseInt(listIDStr, 10, 64)
+	if err != nil {
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "invalid order_list_id")
+		return
+	}
+	if err := h.client.CancelOCOOrder(symbol, listID); err != nil {
+		Error(w, http.StatusInternalServerError, CodeCancelFailed, err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}

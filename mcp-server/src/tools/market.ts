@@ -127,6 +127,14 @@ export function registerMarketTools(server: any, client: TradingClient) {
       for (const sym of symbols) {
         lines.push(`| ${sym} | ${prices[sym]} |`);
       }
+      // Show triggered alerts prominently
+      const alerts = snapshot.triggered_alerts || [];
+      if (alerts.length > 0) {
+        lines.push("", "### 🔔 Triggered Alerts", "");
+        for (const a of alerts) {
+          lines.push(`- **${a.symbol}** ${a.direction} $${a.price}: ${a.message || "(no message)"}`);
+        }
+      }
       return {
         content: [{ type: "text" as const, text: lines.join("\n") }],
         structuredContent: snapshot,

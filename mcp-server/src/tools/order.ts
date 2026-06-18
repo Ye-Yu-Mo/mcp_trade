@@ -161,6 +161,91 @@ export function registerOrderTools(server: any, client: TradingClient) {
     },
   );
 
+  // --- order.modify_stop ---
+  server.registerTool(
+    "order.modify_stop",
+    {
+      description:
+        "修改已有仓位的止损价。两步操作：(1) 撤销旧的止损单 (2) 下新的 STOP_MARKET 止损单（reduce_only）。用于价格向有利方向移动后将止损移到保本或更好位置。" +
+        "前置条件：需要知道旧的止损单 order_id（通过 order.list 查询当前挂单获取）。",
+      inputSchema: {
+        symbol: z.string().describe("交易对，如 BTCUSDT"),
+        old_order_id: z.number().describe("要替换的旧止损单 ID"),
+        new_stop_price: z.number().describe("新的止损价格"),
+        side: z.string().describe("SELL（做多止损）或 BUY（做空止损）"),
+        quantity: z.number().describe("持仓数量"),
+        position_side: z.string().optional().describe("LONG / SHORT，默认 LONG"),
+      },
+    },
+    async (args: { symbol: string; old_order_id: number; new_stop_price: number; side: string; quantity: number; position_side?: string }) => {
+      const result = await client.modifyStop({
+        symbol: args.symbol,
+        oldOrderId: args.old_order_id,
+        newStopPrice: args.new_stop_price,
+        side: args.side,
+        quantity: args.quantity,
+        positionSide: args.position_side,
+      });
+      const text = [
+        `## Stop Loss Modified`,
+        `| Field | Value |`,
+        `|-------|-------|`,
+        `| Symbol | ${args.symbol} |`,
+        `| Old Order | #${args.old_order_id} |`,
+        `| New Stop | $${args.new_stop_price} |`,
+        `| New Order | #${result.new_stop.orderId} |`,
+        `| Status | ${result.new_stop.status} |`,
+      ].join("\n");
+      return {
+        content: [{ type: "text" as const, text }],
+        structuredContent: result,
+      };
+    },
+  );
+
+  // --- order.oco ---
+  server.registerTool(
+    "order.oco",
+    {
+      description:
+        "OCO 订单（One-Cancels-Other）：同时挂止盈限价单和止损市价单，一个触发另一个自动取消。入场后必须立即设 OCO——AI 不在场内盯盘，退出条件必须在入场时就写入币安服务器。参数：symbol, side(SELL=平多/BUY=平空), quantity, price(止盈价), stop_price(止损价)。",
+      inputSchema: {
+        symbol: z.string().describe("交易对，如 BTCUSDT"),
+        side: z.string().describe("SELL（平多单止盈+止损）或 BUY（平空单止盈+止损）"),
+        quantity: z.number().describe("数量"),
+        price: z.number().describe("止盈价格"),
+        stop_price: z.number().describe("止损价格"),
+      },
+    },
+    async (args: { symbol: string; side: string; quantity: number; price: number; stop_price: number }) => {
+      const result = await client.createOCO({
+        symbol: args.symbol,
+        side: args.side,
+        quantity: args.quantity,
+        price: args.price,
+        stopPrice: args.stop_price,
+      });
+      const text = [
+        `## OCO Order Placed`,
+        `| Field | Value |`,
+        `|-------|-------|`,
+        `| OCO ID | ${result.orderListId} |`,
+        `| Symbol | ${args.symbol} |`,
+        `| Qty | ${args.quantity} |`,
+        `| Take Profit | $${args.price} |`,
+        `| Stop Loss | $${args.stop_price} |`,
+        `| Stop Order | #${result.stop_order?.orderId} |`,
+        `| Limit Order | #${result.limit_order?.orderId} |`,
+        ``,
+        `⚠️ 止盈和止损已部署到币安服务器。触发后自动执行，无需 AI 盯盘。`,
+      ].join("\n");
+      return {
+        content: [{ type: "text" as const, text }],
+        structuredContent: result,
+      };
+    },
+  );
+
   // --- order.status ---
   server.registerTool(
     "order.status",

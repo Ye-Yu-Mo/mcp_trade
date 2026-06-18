@@ -30,6 +30,8 @@ sequenceDiagram
 
     AI->>MCP: order.place(preview)
     MCP->>TS: POST /api/v1/order/place
+| POST | `/api/v1/order/modify_stop` | 修改止损 |
+
     TS->>TS: RiskManager 风控检查
     TS-->>MCP: plan_id + 风险预览
     MCP-->>AI: 预览确认
@@ -109,7 +111,7 @@ npm run build
 | `MAX_STOP_LOSS_PERCENT` | | 0.02 | 单笔止损上限（余额比例） |
 | `DAILY_LOSS_LIMIT` | | 100 | 每日最大亏损 (USDT) |
 
-## MCP 工具列表（14 个）
+## MCP 工具列表（20 个）
 
 ### 行情 — market.*
 | 工具 | 说明 |
@@ -151,9 +153,19 @@ npm run build
 | GET | `/api/v1/market/ticker` | 价格 |
 | GET | `/api/v1/market/orderbook` | 深度 |
 | GET | `/api/v1/market/watch` | 全币种快照 |
+| GET | `/api/v1/market/scanner` | 市场扫描 |
+| GET | `/api/v1/market/funding` | 资金费率 |
+| GET | `/api/v1/market/oi` | 未平仓合约 |
+| GET | `/api/v1/market/calendar` | 经济日历 |
+| POST | `/api/v1/market/alert` | 设价格提醒 |
+| GET | `/api/v1/market/alerts` | 查提醒 |
+| DELETE | `/api/v1/market/alert` | 删提醒 |
+
 | GET | `/api/v1/account/balance` | 余额 |
 | GET | `/api/v1/account/positions` | 持仓 |
 | POST | `/api/v1/order/place` | 下单 |
+| POST | `/api/v1/order/modify_stop` | 修改止损 |
+
 | DELETE | `/api/v1/order/cancel` | 撤单 |
 | GET | `/api/v1/order/list` | 挂单 |
 | GET | `/api/v1/order/status` | 订单详情 |

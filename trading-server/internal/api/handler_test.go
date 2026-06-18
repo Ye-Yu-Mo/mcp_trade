@@ -346,3 +346,5 @@ func TestHandlePositions_Empty(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 }
+func (m *mockTrader) CreateOCOOrder(symbol, side string, quantity, price, stopPrice float64) (*binance.OCOOrder, error) { return nil, m.err }
+func (m *mockTrader) CancelOCOOrder(symbol string, orderListID int64) error { return m.err }

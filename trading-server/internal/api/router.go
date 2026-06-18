@@ -72,7 +72,10 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 		})
 		r.Route("/order", func(r chi.Router) {
 			r.Post("/place", order.HandlePlaceOrder)
+			r.Post("/modify_stop", order.HandleModifyStop)
 			r.Delete("/cancel", order.HandleCancelOrder)
+			r.Post("/oco", order.HandleOCOOrder)
+			r.Delete("/oco", order.HandleCancelOCO)
 			r.Get("/list", order.HandleListOrders)
 			r.Get("/status", order.HandleOrderStatus)
 		})

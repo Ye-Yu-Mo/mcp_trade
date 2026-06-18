@@ -195,4 +195,42 @@ export class TradingClient {
   async getOpenInterest(symbol = "BTCUSDT"): Promise<any> {
     return this.get<any>(`/api/v1/market/oi?symbol=${symbol}`);
   }
+
+  async modifyStop(params: {
+    symbol: string;
+    oldOrderId: number;
+    newStopPrice: number;
+    side: string;
+    quantity: number;
+    positionSide?: string;
+  }): Promise<any> {
+    const form = new URLSearchParams();
+    form.set("symbol", params.symbol);
+    form.set("old_order_id", String(params.oldOrderId));
+    form.set("new_stop_price", String(params.newStopPrice));
+    form.set("side", params.side);
+    form.set("quantity", String(params.quantity));
+    if (params.positionSide) form.set("position_side", params.positionSide);
+    return this.post<any>("/api/v1/order/modify_stop", form);
+  }
+
+  async createOCO(params: {
+    symbol: string;
+    side: string;
+    quantity: number;
+    price: number;
+    stopPrice: number;
+  }): Promise<any> {
+    const form = new URLSearchParams();
+    form.set("symbol", params.symbol);
+    form.set("side", params.side);
+    form.set("quantity", String(params.quantity));
+    form.set("price", String(params.price));
+    form.set("stop_price", String(params.stopPrice));
+    return this.post<any>("/api/v1/order/oco", form);
+  }
+
+  async cancelOCO(symbol: string, orderListId: number): Promise<void> {
+    await this.del<void>(`/api/v1/order/oco?symbol=${symbol}&order_list_id=${orderListId}`);
+  }
 }

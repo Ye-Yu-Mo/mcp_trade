@@ -16,6 +16,44 @@
 
 ---
 
+## v0.2.0 — 2026-06-18
+
+### Added
+
+**价格提醒系统**
+- `market.alerts` MCP 工具：设价格提醒、查活跃/已触发提醒、删除提醒
+- 内存自动检测：每 3 秒对比缓存价格，触发时自动标记
+
+**市场扫描器**
+- `market.scanner` MCP 工具：一次调用扫全市场，按 24h 成交量排序
+
+**合约情绪指标**
+- `market.funding` MCP 工具：资金费率 + 多空拥挤度判断
+- `market.oi` MCP 工具：未平仓合约 + 趋势强度信号
+
+**订单改进**
+- `order.place` 支持 `reduce_only` 参数（平仓/减仓）
+- 仓位上限从 5% 提高到 50%
+
+**体验优化**
+- `market.klines` 支持逗号分隔多币种
+- `market.watch` 多周期 K 线（1h / 4h / 1d）
+- `trade.journal_list` 支持按 entry_type / tags 筛选
+- `market.calendar` 经济日历
+
+### Changed
+- CI 修复：`npm ci` → `npm install`
+- Go 测试 `-short` 跳过高频集成测试
+- README 架构图改为 Mermaid
+
+### Summary
+| Metric | Value |
+|--------|-------|
+| MCP Tools | 18 (+4) |
+| Go Tests | 62 (+9) |
+
+---
+
 ## v0.1.0 — 2026-06-18
 
 Initial Release — AI 主观交易系统首个可用版本。
