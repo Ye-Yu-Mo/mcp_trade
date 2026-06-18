@@ -15,6 +15,8 @@ type mockTrader struct {
 	klines    []binance.Kline
 	ticker    *binance.Ticker
 	orderbook *binance.OrderBook
+	order     *binance.Order
+	orders    []binance.Order
 	balances  []binance.Balance
 	positions []binance.Position
 	err       error
@@ -28,6 +30,18 @@ func (m *mockTrader) GetTicker(symbol string) (*binance.Ticker, error) {
 }
 func (m *mockTrader) GetOrderBook(symbol string, limit int) (*binance.OrderBook, error) {
 	return m.orderbook, m.err
+}
+func (m *mockTrader) CreateOrder(req binance.NewOrderRequest) (*binance.Order, error) {
+	return m.order, m.err
+}
+func (m *mockTrader) CancelOrder(symbol string, orderID int64) (*binance.Order, error) {
+	return m.order, m.err
+}
+func (m *mockTrader) GetOpenOrders(symbol string) ([]binance.Order, error) {
+	return m.orders, m.err
+}
+func (m *mockTrader) GetOrder(symbol string, orderID int64) (*binance.Order, error) {
+	return m.order, m.err
 }
 func (m *mockTrader) GetBalance() ([]binance.Balance, error) {
 	return m.balances, m.err

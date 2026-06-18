@@ -164,3 +164,81 @@ func TestGetOrderBook_DefaultLimit(t *testing.T) {
 		t.Errorf("default limit: got %d bids, want 100", len(ob.Bids))
 	}
 }
+
+func TestCreateAndCancelOrder(t *testing.T) {
+	client := testClient(t)
+
+	// Place a limit buy far below market — won't fill, but must meet notional >= 5 USDT
+	req := NewOrderRequest{
+		Symbol:       "BTCUSDT",
+		Side:         "BUY",
+		PositionSide: "LONG",
+		OrderType:    "LIMIT",
+		Quantity:     0.002,
+		Price:        30000.0,
+	}
+
+	order, err := client.CreateOrder(req)
+	if err != nil {
+		t.Fatalf("CreateOrder() error: %v", err)
+	}
+	if order.OrderID == 0 {
+		t.Fatal("OrderID is 0")
+	}
+	if order.Symbol != "BTCUSDT" {
+		t.Errorf("Symbol = %q, want BTCUSDT", order.Symbol)
+	}
+	if order.Status != "NEW" {
+		t.Errorf("Status = %q, want NEW", order.Status)
+	}
+
+	// Cancel the order
+	cancelled, err := client.CancelOrder("BTCUSDT", order.OrderID)
+	if err != nil {
+		t.Fatalf("CancelOrder() error: %v", err)
+	}
+	if cancelled.Status != "CANCELED" {
+		t.Errorf("Status = %q, want CANCELED", cancelled.Status)
+	}
+}
+
+func TestGetOpenOrders(t *testing.T) {
+	client := testClient(t)
+
+	orders, err := client.GetOpenOrders("BTCUSDT")
+	if err != nil {
+		t.Fatalf("GetOpenOrders() error: %v", err)
+	}
+	// Should be empty (we cancel all test orders)
+	t.Logf("open orders: %d", len(orders))
+}
+
+func TestGetOrder(t *testing.T) {
+	client := testClient(t)
+
+	req := NewOrderRequest{
+		Symbol:       "BTCUSDT",
+		Side:         "BUY",
+		PositionSide: "LONG",
+		OrderType:    "LIMIT",
+		Quantity:     0.002,
+		Price:        30000.0,
+	}
+
+	order, err := client.CreateOrder(req)
+	if err != nil {
+		t.Fatalf("CreateOrder() error: %v", err)
+	}
+
+	// Query the order
+	queried, err := client.GetOrder("BTCUSDT", order.OrderID)
+	if err != nil {
+		t.Fatalf("GetOrder() error: %v", err)
+	}
+	if queried.OrderID != order.OrderID {
+		t.Errorf("OrderID mismatch: %d != %d", queried.OrderID, order.OrderID)
+	}
+
+	// Clean up
+	client.CancelOrder("BTCUSDT", order.OrderID)
+}

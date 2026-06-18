@@ -7,6 +7,7 @@ import (
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/api"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/config"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/risk"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/store"
 )
 
@@ -20,7 +21,28 @@ func main() {
 	client := binance.NewClient(cfg.APIKey, cfg.APISecret, cfg.BaseURL)
 	log.Printf("binance client initialized: %s", cfg.BaseURL)
 
-	// Initialize SQLite store
+	// Setup safe account defaults: one-way mode, cross margin, 1x leverage
+	if err := client.SetPositionMode(false); err != nil {
+		log.Printf("warn: set position mode (one-way): %v", err)
+	}
+	for _, sym := range []string{"BTCUSDT", "ETHUSDT"} {
+		if err := client.SetMarginType(sym, "CROSSED"); err != nil {
+			log.Printf("warn: set margin type %s: %v", sym, err)
+		}
+		if err := client.SetLeverage(sym, 1); err != nil {
+			log.Printf("warn: set leverage %s: %v", sym, err)
+		}
+	}
+	log.Println("account setup complete: one-way, cross margin, 1x leverage")
+
+	// Initialize risk manager
+	riskMgr := risk.NewManager(risk.ManagerConfig{
+		MaxPositionPercent: cfg.MaxPositionPercent,
+		MaxStopLossPercent: cfg.MaxStopLossPercent,
+		DailyLossLimit:     cfg.DailyLossLimit,
+	})
+
+	// Initialize DuckDB store
 	st, err := store.New(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("store: %v", err)
@@ -29,7 +51,7 @@ func main() {
 	log.Printf("database initialized: %s", cfg.DBPath)
 
 	// Setup HTTP router
-	router := api.NewRouter(client, cfg.APIToken)
+	router := api.NewRouter(client, cfg.APIToken, riskMgr)
 
 	addr := ":" + cfg.ServerPort
 	log.Printf("trading server starting on %s (env=%s)", addr, cfg.BaseURL)

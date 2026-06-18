@@ -8,6 +8,10 @@ type Trader interface {
 	GetOrderBook(symbol string, limit int) (*OrderBook, error)
 	GetBalance() ([]Balance, error)
 	GetPositions() ([]Position, error)
+	CreateOrder(req NewOrderRequest) (*Order, error)
+	CancelOrder(symbol string, orderID int64) (*Order, error)
+	GetOpenOrders(symbol string) ([]Order, error)
+	GetOrder(symbol string, orderID int64) (*Order, error)
 }
 
 // Compile-time check: Client implements Trader.

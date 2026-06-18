@@ -47,3 +47,51 @@ type OrderBook struct {
 	Bids   []OrderBookLevel // 买盘，价格从高到低
 	Asks   []OrderBookLevel // 卖盘，价格从低到高
 }
+
+// NewOrderRequest is the input for creating a new order.
+type NewOrderRequest struct {
+	Symbol       string  // 交易对
+	Side         string  // BUY / SELL
+	PositionSide string  // LONG / SHORT / BOTH（默认 BOTH，单向模式）
+	OrderType    string  // LIMIT / MARKET / STOP_MARKET
+	Quantity     float64 // 数量
+	Price        float64 // 限价（LIMIT 必填）
+	StopPrice    float64 // 止损价（STOP_MARKET 必填）
+}
+
+// Order represents a single order returned from Binance.
+type Order struct {
+	OrderID      int64   `json:"orderId"`
+	Symbol       string  `json:"symbol"`
+	Status       string  `json:"status"`
+	ClientOrderID string `json:"clientOrderId"`
+	Price        float64 `json:"price,string"`
+	AvgPrice     float64 `json:"avgPrice,string"`
+	OrigQty      float64 `json:"origQty,string"`
+	ExecutedQty  float64 `json:"executedQty,string"`
+	Type         string  `json:"type"`
+	Side         string  `json:"side"`
+	StopPrice    float64 `json:"stopPrice,string"`
+	TimeInForce  string  `json:"timeInForce"`
+	UpdateTime   int64   `json:"updateTime"`
+}
+
+// OrderPreview is returned by the Plan phase (without confirm).
+// It shows what the order will look like and the risk assessment.
+type OrderPreview struct {
+	PlanID   string      `json:"plan_id"`
+	Symbol   string      `json:"symbol"`
+	Side     string      `json:"side"`
+	Type     string      `json:"type"`
+	Quantity float64     `json:"quantity"`
+	Price    float64     `json:"price"`
+	StopPrice float64    `json:"stop_price"`
+	Risk     RiskCheck   `json:"risk"`
+}
+
+// RiskCheck holds the result of pre-trade risk checks.
+type RiskCheck struct {
+	Passed  bool     `json:"passed"`
+	Checks  []string `json:"checks"`
+	Warnings []string `json:"warnings"`
+}

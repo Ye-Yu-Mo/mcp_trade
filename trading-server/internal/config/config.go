@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 // Config holds all configuration for the Trading Server.
@@ -13,6 +14,11 @@ type Config struct {
 	ServerPort string
 	DBPath     string
 	APIToken   string
+
+	// Risk control
+	MaxPositionPercent float64
+	MaxStopLossPercent float64
+	DailyLossLimit     float64
 }
 
 // Load reads configuration from environment variables.
@@ -54,12 +60,30 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("API_TOKEN is required")
 	}
 
+	maxPositionPercent := 0.1
+	if v := os.Getenv("MAX_POSITION_PERCENT"); v != "" {
+		maxPositionPercent, _ = strconv.ParseFloat(v, 64)
+	}
+
+	maxStopLossPercent := 0.02
+	if v := os.Getenv("MAX_STOP_LOSS_PERCENT"); v != "" {
+		maxStopLossPercent, _ = strconv.ParseFloat(v, 64)
+	}
+
+	dailyLossLimit := 100.0
+	if v := os.Getenv("DAILY_LOSS_LIMIT"); v != "" {
+		dailyLossLimit, _ = strconv.ParseFloat(v, 64)
+	}
+
 	return &Config{
-		APIKey:     apiKey,
-		APISecret:  apiSecret,
-		BaseURL:    baseURL,
-		ServerPort: serverPort,
-		DBPath:     dbPath,
-		APIToken:   apiToken,
+		APIKey:             apiKey,
+		APISecret:          apiSecret,
+		BaseURL:            baseURL,
+		ServerPort:         serverPort,
+		DBPath:             dbPath,
+		APIToken:           apiToken,
+		MaxPositionPercent: maxPositionPercent,
+		MaxStopLossPercent: maxStopLossPercent,
+		DailyLossLimit:     dailyLossLimit,
 	}, nil
 }

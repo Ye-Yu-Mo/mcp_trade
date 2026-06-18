@@ -5,10 +5,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/risk"
 )
 
 // NewRouter creates and configures the chi router with all API routes.
-func NewRouter(client binance.Trader, apiToken string) *chi.Mux {
+func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Public: health check
@@ -22,6 +23,7 @@ func NewRouter(client binance.Trader, apiToken string) *chi.Mux {
 
 		market := NewMarketHandler(client)
 		account := NewAccountHandler(client)
+		order := NewOrderHandler(client, riskMgr)
 
 		r.Route("/market", func(r chi.Router) {
 			r.Get("/klines", market.HandleKlines)
@@ -31,6 +33,12 @@ func NewRouter(client binance.Trader, apiToken string) *chi.Mux {
 		r.Route("/account", func(r chi.Router) {
 			r.Get("/balance", account.HandleBalance)
 			r.Get("/positions", account.HandlePositions)
+		})
+		r.Route("/order", func(r chi.Router) {
+			r.Post("/place", order.HandlePlaceOrder)
+			r.Delete("/cancel", order.HandleCancelOrder)
+			r.Get("/list", order.HandleListOrders)
+			r.Get("/status", order.HandleOrderStatus)
 		})
 	})
 
