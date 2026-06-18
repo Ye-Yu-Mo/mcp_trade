@@ -12,6 +12,7 @@ type Config struct {
 	BaseURL    string
 	ServerPort string
 	DBPath     string
+	APIToken   string
 }
 
 // Load reads configuration from environment variables.
@@ -48,11 +49,17 @@ func Load() (*Config, error) {
 		dbPath = "data/trade.duckdb"
 	}
 
+	apiToken := os.Getenv("API_TOKEN")
+	if apiToken == "" {
+		return nil, fmt.Errorf("API_TOKEN is required")
+	}
+
 	return &Config{
 		APIKey:     apiKey,
 		APISecret:  apiSecret,
 		BaseURL:    baseURL,
 		ServerPort: serverPort,
 		DBPath:     dbPath,
+		APIToken:   apiToken,
 	}, nil
 }

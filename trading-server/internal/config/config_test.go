@@ -5,12 +5,22 @@ import (
 	"testing"
 )
 
-func TestLoadConfig(t *testing.T) {
-	// 设置环境变量
+func setupEnv(t *testing.T) {
+	t.Helper()
 	os.Setenv("BINANCE_API_KEY", "test_key")
 	os.Setenv("BINANCE_API_SECRET", "test_secret")
-	defer os.Unsetenv("BINANCE_API_KEY")
-	defer os.Unsetenv("BINANCE_API_SECRET")
+	os.Setenv("API_TOKEN", "test_token")
+	t.Cleanup(func() {
+		os.Unsetenv("BINANCE_API_KEY")
+		os.Unsetenv("BINANCE_API_SECRET")
+		os.Unsetenv("API_TOKEN")
+		os.Unsetenv("TRADE_ENV")
+		os.Unsetenv("SERVER_PORT")
+	})
+}
+
+func TestLoadConfig(t *testing.T) {
+	setupEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -22,6 +32,9 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.APISecret != "test_secret" {
 		t.Errorf("APISecret = %q, want %q", cfg.APISecret, "test_secret")
 	}
+	if cfg.APIToken != "test_token" {
+		t.Errorf("APIToken = %q, want %q", cfg.APIToken, "test_token")
+	}
 	if cfg.ServerPort != "8877" {
 		t.Errorf("ServerPort = %q, want %q", cfg.ServerPort, "8877")
 	}
@@ -32,7 +45,9 @@ func TestLoadConfig(t *testing.T) {
 
 func TestLoadConfig_MissingAPIKey(t *testing.T) {
 	os.Setenv("BINANCE_API_SECRET", "test_secret")
+	os.Setenv("API_TOKEN", "test_token")
 	defer os.Unsetenv("BINANCE_API_SECRET")
+	defer os.Unsetenv("API_TOKEN")
 	os.Unsetenv("BINANCE_API_KEY")
 
 	_, err := Load()
@@ -46,7 +61,9 @@ func TestLoadConfig_MissingAPIKey(t *testing.T) {
 
 func TestLoadConfig_MissingAPISecret(t *testing.T) {
 	os.Setenv("BINANCE_API_KEY", "test_key")
+	os.Setenv("API_TOKEN", "test_token")
 	defer os.Unsetenv("BINANCE_API_KEY")
+	defer os.Unsetenv("API_TOKEN")
 	os.Unsetenv("BINANCE_API_SECRET")
 
 	_, err := Load()
@@ -58,13 +75,24 @@ func TestLoadConfig_MissingAPISecret(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_TestnetDefault(t *testing.T) {
+func TestLoadConfig_MissingAPIToken(t *testing.T) {
 	os.Setenv("BINANCE_API_KEY", "test_key")
 	os.Setenv("BINANCE_API_SECRET", "test_secret")
 	defer os.Unsetenv("BINANCE_API_KEY")
 	defer os.Unsetenv("BINANCE_API_SECRET")
+	os.Unsetenv("API_TOKEN")
 
-	// 不设 TRADE_ENV
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() expected error for missing API token, got nil")
+	}
+	if err.Error() != "API_TOKEN is required" {
+		t.Errorf("error = %q, want %q", err.Error(), "API_TOKEN is required")
+	}
+}
+
+func TestLoadConfig_TestnetDefault(t *testing.T) {
+	setupEnv(t)
 	os.Unsetenv("TRADE_ENV")
 
 	cfg, err := Load()
@@ -78,12 +106,8 @@ func TestLoadConfig_TestnetDefault(t *testing.T) {
 }
 
 func TestLoadConfig_Mainnet(t *testing.T) {
-	os.Setenv("BINANCE_API_KEY", "test_key")
-	os.Setenv("BINANCE_API_SECRET", "test_secret")
+	setupEnv(t)
 	os.Setenv("TRADE_ENV", "mainnet")
-	defer os.Unsetenv("BINANCE_API_KEY")
-	defer os.Unsetenv("BINANCE_API_SECRET")
-	defer os.Unsetenv("TRADE_ENV")
 
 	cfg, err := Load()
 	if err != nil {
@@ -96,12 +120,8 @@ func TestLoadConfig_Mainnet(t *testing.T) {
 }
 
 func TestLoadConfig_CustomPort(t *testing.T) {
-	os.Setenv("BINANCE_API_KEY", "test_key")
-	os.Setenv("BINANCE_API_SECRET", "test_secret")
+	setupEnv(t)
 	os.Setenv("SERVER_PORT", "9090")
-	defer os.Unsetenv("BINANCE_API_KEY")
-	defer os.Unsetenv("BINANCE_API_SECRET")
-	defer os.Unsetenv("SERVER_PORT")
 
 	cfg, err := Load()
 	if err != nil {
