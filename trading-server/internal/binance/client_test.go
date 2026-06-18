@@ -119,3 +119,48 @@ func TestGetPositions(t *testing.T) {
 		}
 	}
 }
+
+func TestGetOrderBook(t *testing.T) {
+	client := testClient(t)
+	ob, err := client.GetOrderBook("BTCUSDT", 10)
+	if err != nil {
+		t.Fatalf("GetOrderBook() error: %v", err)
+	}
+	if ob.Symbol != "BTCUSDT" {
+		t.Errorf("Symbol = %q, want BTCUSDT", ob.Symbol)
+	}
+	if len(ob.Bids) == 0 {
+		t.Fatal("bids is empty")
+	}
+	if len(ob.Asks) == 0 {
+		t.Fatal("asks is empty")
+	}
+	// Bids should be descending, asks ascending
+	for i := 1; i < len(ob.Bids); i++ {
+		if ob.Bids[i].Price > ob.Bids[i-1].Price {
+			t.Errorf("bids not sorted descending: bids[%d].Price=%f > bids[%d].Price=%f",
+				i, ob.Bids[i].Price, i-1, ob.Bids[i-1].Price)
+		}
+	}
+	for i := 1; i < len(ob.Asks); i++ {
+		if ob.Asks[i].Price < ob.Asks[i-1].Price {
+			t.Errorf("asks not sorted ascending: asks[%d].Price=%f < asks[%d].Price=%f",
+				i, ob.Asks[i].Price, i-1, ob.Asks[i-1].Price)
+		}
+	}
+	// Verify bid < ask (no crossed book)
+	if ob.Bids[0].Price >= ob.Asks[0].Price {
+		t.Errorf("crossed order book: best bid %f >= best ask %f", ob.Bids[0].Price, ob.Asks[0].Price)
+	}
+}
+
+func TestGetOrderBook_DefaultLimit(t *testing.T) {
+	client := testClient(t)
+	ob, err := client.GetOrderBook("BTCUSDT", 0)
+	if err != nil {
+		t.Fatalf("GetOrderBook(limit=0) error: %v", err)
+	}
+	if len(ob.Bids) != 100 {
+		t.Errorf("default limit: got %d bids, want 100", len(ob.Bids))
+	}
+}

@@ -14,6 +14,7 @@ import (
 type mockTrader struct {
 	klines    []binance.Kline
 	ticker    *binance.Ticker
+	orderbook *binance.OrderBook
 	balances  []binance.Balance
 	positions []binance.Position
 	err       error
@@ -24,6 +25,9 @@ func (m *mockTrader) GetKlines(symbol, interval string, limit int) ([]binance.Kl
 }
 func (m *mockTrader) GetTicker(symbol string) (*binance.Ticker, error) {
 	return m.ticker, m.err
+}
+func (m *mockTrader) GetOrderBook(symbol string, limit int) (*binance.OrderBook, error) {
+	return m.orderbook, m.err
 }
 func (m *mockTrader) GetBalance() ([]binance.Balance, error) {
 	return m.balances, m.err

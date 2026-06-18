@@ -34,3 +34,16 @@ type Position struct {
 	UnrealizedPnL float64 // 未实现盈亏
 	Leverage      int     // 杠杆倍数
 }
+
+// OrderBookLevel represents a single price level in the order book.
+type OrderBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// OrderBook represents the order book depth for a symbol.
+type OrderBook struct {
+	Symbol string
+	Bids   []OrderBookLevel // 买盘，价格从高到低
+	Asks   []OrderBookLevel // 卖盘，价格从低到高
+}

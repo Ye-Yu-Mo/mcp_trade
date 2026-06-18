@@ -26,6 +26,7 @@ func NewRouter(client binance.Trader, apiToken string) *chi.Mux {
 		r.Route("/market", func(r chi.Router) {
 			r.Get("/klines", market.HandleKlines)
 			r.Get("/ticker", market.HandleTicker)
+			r.Get("/orderbook", market.HandleOrderBook)
 		})
 		r.Route("/account", func(r chi.Router) {
 			r.Get("/balance", account.HandleBalance)

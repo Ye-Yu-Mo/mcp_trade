@@ -66,3 +66,31 @@ func (h *MarketHandler) HandleTicker(w http.ResponseWriter, r *http.Request) {
 
 	JSON(w, http.StatusOK, ticker)
 }
+
+// HandleOrderBook handles GET /api/v1/market/orderbook
+func (h *MarketHandler) HandleOrderBook(w http.ResponseWriter, r *http.Request) {
+	symbol := r.URL.Query().Get("symbol")
+	if symbol == "" {
+		Error(w, http.StatusBadRequest, "MISSING_PARAM", "symbol is required")
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 20
+	if limitStr != "" {
+		var err error
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil || limit <= 0 || limit > 1000 {
+			Error(w, http.StatusBadRequest, "INVALID_PARAM", "limit must be 1-1000")
+			return
+		}
+	}
+
+	ob, err := h.client.GetOrderBook(symbol, limit)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "BINANCE_ERROR", err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, ob)
+}

@@ -134,6 +134,11 @@ type positionRaw struct {
 	Leverage         string `json:"leverage"`
 }
 
+type orderBookRaw struct {
+	Bids [][]string `json:"bids"`
+	Asks [][]string `json:"asks"`
+}
+
 // ------- Public methods -------
 
 // GetKlines fetches candlestick/kline data for a symbol.
@@ -257,4 +262,44 @@ func (c *Client) GetPositions() ([]Position, error) {
 		})
 	}
 	return positions, nil
+}
+
+// GetOrderBook returns the order book depth for a symbol.
+// limit: 5, 10, 20, 50, 100, 500, 1000. Default 100.
+func (c *Client) GetOrderBook(symbol string, limit int) (*OrderBook, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("limit", strconv.Itoa(limit))
+
+	body, err := c.get(context.Background(), "/fapi/v1/depth", params, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw orderBookRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse orderbook: %w", err)
+	}
+
+	parseLevels := func(data [][]string) []OrderBookLevel {
+		levels := make([]OrderBookLevel, 0, len(data))
+		for _, entry := range data {
+			if len(entry) < 2 {
+				continue
+			}
+			price, _ := strconv.ParseFloat(entry[0], 64)
+			qty, _ := strconv.ParseFloat(entry[1], 64)
+			levels = append(levels, OrderBookLevel{Price: price, Quantity: qty})
+		}
+		return levels
+	}
+
+	return &OrderBook{
+		Symbol: symbol,
+		Bids:   parseLevels(raw.Bids),
+		Asks:   parseLevels(raw.Asks),
+	}, nil
 }

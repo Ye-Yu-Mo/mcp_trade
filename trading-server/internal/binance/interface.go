@@ -5,6 +5,7 @@ package binance
 type Trader interface {
 	GetKlines(symbol, interval string, limit int) ([]Kline, error)
 	GetTicker(symbol string) (*Ticker, error)
+	GetOrderBook(symbol string, limit int) (*OrderBook, error)
 	GetBalance() ([]Balance, error)
 	GetPositions() ([]Position, error)
 }
