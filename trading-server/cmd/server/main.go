@@ -51,7 +51,7 @@ func main() {
 	log.Printf("database initialized: %s", cfg.DBPath)
 
 	// Setup HTTP router
-	router := api.NewRouter(client, cfg.APIToken, riskMgr)
+	router := api.NewRouter(client, cfg.APIToken, riskMgr, st)
 
 	addr := ":" + cfg.ServerPort
 	log.Printf("trading server starting on %s (env=%s)", addr, cfg.BaseURL)

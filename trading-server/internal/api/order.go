@@ -3,23 +3,26 @@ package api
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/risk"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/store"
 )
 
 // OrderHandler handles order endpoints with risk management.
 type OrderHandler struct {
 	client binance.Trader
 	risk   *risk.Manager
+	store  *store.Store
 }
 
 // NewOrderHandler creates an OrderHandler.
-func NewOrderHandler(client binance.Trader, riskMgr *risk.Manager) *OrderHandler {
-	return &OrderHandler{client: client, risk: riskMgr}
+func NewOrderHandler(client binance.Trader, riskMgr *risk.Manager, st *store.Store) *OrderHandler {
+	return &OrderHandler{client: client, risk: riskMgr, store: st}
 }
 
 // planID generates a plan ID from order parameters.
@@ -55,7 +58,7 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 	price, _ := strconv.ParseFloat(r.FormValue("price"), 64)
 	stopPrice, _ := strconv.ParseFloat(r.FormValue("stop_price"), 64)
 
-	// Plan phase: no confirm → return preview with risk check
+	// Plan phase: real-time risk preview with balance
 	confirm := r.FormValue("confirm")
 	if confirm != "true" {
 		pid := planID(symbol, side, orderType, qty, price, stopPrice)
@@ -63,6 +66,26 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 		// Price rounding for preview
 		roundedPrice := risk.RoundPrice(symbol, price)
 		roundedQty := risk.RoundQuantity(symbol, qty)
+
+		// Get real balance for risk preview
+		balances, _ := h.client.GetBalance()
+		var usdtBalance float64
+		for _, b := range balances {
+			if b.Asset == "USDT" || b.Asset == "USDC" || b.Asset == "BUSD" {
+				usdtBalance += b.TotalBalance
+			}
+		}
+		dailyPnL, _ := h.store.GetDailyPnL()
+
+		riskErr := h.risk.CheckOrder(risk.CheckInput{
+			Symbol: symbol, Quantity: roundedQty, Price: roundedPrice,
+			StopPrice: stopPrice, Balance: usdtBalance, DailyPnL: dailyPnL,
+		})
+		riskPassed := riskErr == nil
+		checks := []string{fmt.Sprintf("balance=%.2f, notional=%.2f, dailyPnL=%.2f", usdtBalance, roundedQty*roundedPrice, dailyPnL)}
+		if riskErr != nil {
+			checks = append(checks, riskErr.Error())
+		}
 
 		preview := binance.OrderPreview{
 			PlanID:    pid,
@@ -73,17 +96,16 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 			Price:     roundedPrice,
 			StopPrice: stopPrice,
 			Risk: binance.RiskCheck{
-				Passed: true,
-				Checks: []string{fmt.Sprintf("notional=%.2f USDT", roundedQty*roundedPrice)},
+				Passed:   riskPassed,
+				Checks:   checks,
 			},
 		}
 
-		// Run risk check (without balance/dailyPnL in preview - those need account state)
 		JSON(w, http.StatusOK, preview)
 		return
 	}
 
-	// Apply phase: confirm=true + plan_id → validate and execute
+	// Apply phase: confirm=true + plan_id → validate, check risk, execute
 	planIDParam := r.FormValue("plan_id")
 	expectedPID := planID(symbol, side, orderType, qty, price, stopPrice)
 	if planIDParam != expectedPID {
@@ -91,9 +113,29 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Apply price/quantity rounding
 	roundedPrice := risk.RoundPrice(symbol, price)
 	roundedQty := risk.RoundQuantity(symbol, qty)
+
+	// Real-time risk check
+	balances, _ := h.client.GetBalance()
+	var usdtBalance float64
+	for _, b := range balances {
+		if b.Asset == "USDT" || b.Asset == "USDC" || b.Asset == "BUSD" {
+			usdtBalance += b.TotalBalance
+		}
+	}
+	dailyPnL, _ := h.store.GetDailyPnL()
+	if err := h.risk.CheckOrder(risk.CheckInput{
+		Symbol: symbol, Quantity: roundedQty, Price: roundedPrice,
+		StopPrice: stopPrice, Balance: usdtBalance, DailyPnL: dailyPnL,
+	}); err != nil {
+		code := "RISK_REJECTED"
+		if len(err.Error()) > 15 {
+			code = err.Error()[:15]
+		}
+		Error(w, http.StatusForbidden, code, err.Error())
+		return
+	}
 
 	req := binance.NewOrderRequest{
 		Symbol:       symbol,
@@ -110,6 +152,12 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 		Error(w, http.StatusInternalServerError, "ORDER_FAILED", err.Error())
 		return
 	}
+
+	// Auto-record trade
+	entryReason := r.FormValue("entry_reason")
+	snapshot, _ := json.Marshal(map[string]float64{"price": roundedPrice, "qty": roundedQty})
+	h.store.InsertTrade(symbol, side, roundedQty, roundedPrice,
+		strconv.FormatInt(order.OrderID, 10), entryReason, string(snapshot))
 
 	JSON(w, http.StatusOK, order)
 }
