@@ -123,6 +123,7 @@ func (m *MarketStream) parseWSMessage(msg []byte) {
 func (m *MarketStream) runRESTPoll() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+	intervals := []string{"1h", "4h", "1d"}
 
 	for {
 		select {
@@ -133,8 +134,10 @@ func (m *MarketStream) runRESTPoll() {
 				if t, err := m.client.GetTicker(sym); err == nil {
 					m.cache.SetPrice(sym, t.Price)
 				}
-				if klines, err := m.client.GetKlines(sym, "1h", 1); err == nil && len(klines) > 0 {
-					m.cache.SetKline(sym, "1h", klines[0])
+				for _, interval := range intervals {
+					if klines, err := m.client.GetKlines(sym, interval, 1); err == nil && len(klines) > 0 {
+						m.cache.SetKline(sym, interval, klines[0])
+					}
 				}
 				if ob, err := m.client.GetOrderBook(sym, 20); err == nil {
 					m.cache.SetOrderBook(sym, *ob)

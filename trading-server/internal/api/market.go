@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
@@ -19,7 +21,7 @@ func NewMarketHandler(client binance.Trader) *MarketHandler {
 	return &MarketHandler{client: client}
 }
 
-// HandleKlines handles GET /api/v1/market/klines
+// HandleKlines handles GET /api/v1/market/klines — supports comma-separated symbols.
 func (h *MarketHandler) HandleKlines(w http.ResponseWriter, r *http.Request) {
 	symbol := r.URL.Query().Get("symbol")
 	if symbol == "" {
@@ -43,13 +45,31 @@ func (h *MarketHandler) HandleKlines(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	klines, err := h.client.GetKlines(symbol, interval, limit)
-	if err != nil {
-		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
+	symbols := strings.Split(symbol, ",")
+	if len(symbols) == 1 {
+		klines, err := h.client.GetKlines(symbols[0], interval, limit)
+		if err != nil {
+			Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
+			return
+		}
+		JSON(w, http.StatusOK, klines)
 		return
 	}
 
-	JSON(w, http.StatusOK, klines)
+	result := make(map[string][]binance.Kline)
+	for _, sym := range symbols {
+		sym = strings.TrimSpace(sym)
+		if sym == "" {
+			continue
+		}
+		klines, err := h.client.GetKlines(sym, interval, limit)
+		if err != nil {
+			Error(w, http.StatusInternalServerError, CodeBinanceError, fmt.Sprintf("%s: %v", sym, err))
+			return
+		}
+		result[sym] = klines
+	}
+	JSON(w, http.StatusOK, result)
 }
 
 // HandleTicker handles GET /api/v1/market/ticker
@@ -83,6 +103,12 @@ func (h *MarketHandler) HandleWatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	JSON(w, http.StatusOK, h.cache.Snapshot())
+}
+
+// HandleCalendar handles GET /api/v1/market/calendar — returns upcoming economic events.
+func (h *MarketHandler) HandleCalendar(w http.ResponseWriter, _ *http.Request) {
+	events := getUpcomingEvents()
+	JSON(w, http.StatusOK, events)
 }
 
 // HandleOrderBook handles GET /api/v1/market/orderbook

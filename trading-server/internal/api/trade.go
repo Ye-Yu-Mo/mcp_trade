@@ -84,7 +84,9 @@ func (h *TradeHandler) HandleJournalList(w http.ResponseWriter, r *http.Request)
 	if limitStr != "" {
 		limit, _ = strconv.Atoi(limitStr)
 	}
-	entries, err := h.store.QueryJournals(limit)
+	entryType := r.URL.Query().Get("entry_type")
+	tags := r.URL.Query().Get("tags")
+	entries, err := h.store.QueryJournals(limit, entryType, tags)
 	if err != nil {
 		Error(w, http.StatusInternalServerError, CodeQueryFailed, err.Error())
 		return

@@ -126,4 +126,32 @@ export function registerMarketTools(server: any, client: TradingClient) {
       };
     },
   );
+
+  // --- market.calendar ---
+  server.registerTool(
+    "market.calendar",
+    {
+      description:
+        "获取未来30天重大经济事件日历。返回非农、CPI、FOMC利率决议等高风险事件的时间和日期。价格行为交易中，技术结构在重大新闻前容易被破坏——此工具帮助AI提前规避事件风险。",
+      inputSchema: {},
+    },
+    async () => {
+      const events = await client.getCalendar();
+      if (events.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No upcoming events." }],
+          structuredContent: { events: [] },
+        };
+      }
+      const header = "| Date | Time | Event | Impact |";
+      const sep = "|---|---|---|---|";
+      const rows = events.map(
+        (e: any) => `| ${e.date} | ${e.time} | ${e.event} | ${e.impact} |`,
+      );
+      return {
+        content: [{ type: "text" as const, text: [header, sep, ...rows].join("\n") }],
+        structuredContent: { events },
+      };
+    },
+  );
 }

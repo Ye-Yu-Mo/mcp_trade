@@ -104,23 +104,35 @@ func TestInsertAndQueryJournal(t *testing.T) {
 	st, _ := New(path)
 	defer st.Close()
 
-	id, err := st.InsertJournal("REVIEW", "stopped out too early", "止损过紧,趋势交易", nil)
-	if err != nil {
-		t.Fatalf("InsertJournal: %v", err)
-	}
-	if id == 0 {
-		t.Fatal("expected non-zero id")
-	}
+	st.InsertJournal("REVIEW", "stopped out too early", "止损过紧,趋势交易", nil)
+	st.InsertJournal("ENTRY", "support bounce BTC", "支撑位反弹", nil)
+	st.InsertJournal("REVIEW", "good exit at resistance", "阻力位,止盈", nil)
 
-	entries, err := st.QueryJournals(10)
+	// Query all — 3 entries, order by created_at DESC may be unstable for same-second inserts
+	entries, err := st.QueryJournals(10, "", "")
 	if err != nil {
 		t.Fatalf("QueryJournals: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
-	if entries[0].Tags != "止损过紧,趋势交易" {
-		t.Errorf("tags = %q", entries[0].Tags)
+
+	// Filter by type
+	reviews, err := st.QueryJournals(10, "REVIEW", "")
+	if err != nil {
+		t.Fatalf("QueryJournals(REVIEW): %v", err)
+	}
+	if len(reviews) != 2 {
+		t.Fatalf("expected 2 REVIEW entries, got %d", len(reviews))
+	}
+
+	// Filter by tag
+	tagged, err := st.QueryJournals(10, "", "止损")
+	if err != nil {
+		t.Fatalf("QueryJournals(tag=止损): %v", err)
+	}
+	if len(tagged) != 1 {
+		t.Fatalf("expected 1 entry with tag '止损', got %d", len(tagged))
 	}
 }
 

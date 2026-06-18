@@ -64,10 +64,12 @@ export function registerTradeTools(server: any, client: TradingClient) {
         "查询历史交易日志/经验记录。返回之前写下的入场理由、出场理由、复盘总结。每次交易会话开始时必须调用此工具，回顾过去的经验教训，避免重复犯错。",
       inputSchema: {
         limit: z.number().default(20).describe("返回数量，默认20"),
+        entry_type: z.string().optional().describe("按类型筛选：ENTRY / EXIT / REVIEW"),
+        tags: z.string().optional().describe("按标签筛选，如 '趋势交易'"),
       },
     },
-    async (args: { limit?: number }) => {
-      const entries = await client.getJournals(args.limit ?? 20);
+    async (args: { limit?: number; entry_type?: string; tags?: string }) => {
+      const entries = await client.getJournals(args.limit ?? 20, args.entry_type, args.tags);
       if (entries.length === 0) {
         return {
           content: [{ type: "text" as const, text: "No journal entries yet." }],

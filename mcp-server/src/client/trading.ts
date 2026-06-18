@@ -50,8 +50,12 @@ export class TradingClient {
 
   async getKlines(symbol: string, interval: string, limit: number): Promise<Kline[]> {
     return this.get<Kline[]>(
-      `/api/v1/market/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+      `/api/v1/market/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`,
     );
+  }
+
+  async getCalendar(): Promise<any[]> {
+    return this.get<any[]>("/api/v1/market/calendar");
   }
 
   async getTicker(symbol: string): Promise<Ticker> {
@@ -148,8 +152,11 @@ export class TradingClient {
     return this.post<{ id: number }>("/api/v1/trade/journal", form);
   }
 
-  async getJournals(limit = 20): Promise<JournalEntry[]> {
-    return this.get<JournalEntry[]>(`/api/v1/trade/journal?limit=${limit}`);
+  async getJournals(limit = 20, entryType?: string, tags?: string): Promise<JournalEntry[]> {
+    let path = `/api/v1/trade/journal?limit=${limit}`;
+    if (entryType) path += `&entry_type=${entryType}`;
+    if (tags) path += `&tags=${encodeURIComponent(tags)}`;
+    return this.get<JournalEntry[]>(path);
   }
 
   async getPerformance(): Promise<PerformanceStats> {

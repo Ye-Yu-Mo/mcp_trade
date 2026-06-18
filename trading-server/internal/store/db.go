@@ -160,12 +160,22 @@ func (s *Store) InsertJournal(entryType, reason, tags string, tradeID *int64) (i
 	return id, err
 }
 
-// QueryJournals returns journal entries, most recent first.
-func (s *Store) QueryJournals(limit int) ([]JournalEntry, error) {
-	rows, err := s.db.Query(
-		`SELECT id, trade_id, entry_type, reason, tags, screenshot_url, market_snapshot, created_at
-		 FROM journal_entries ORDER BY created_at DESC LIMIT ?`, limit,
-	)
+// QueryJournals returns journal entries, optionally filtered by type and tags. Most recent first.
+func (s *Store) QueryJournals(limit int, entryType, tags string) ([]JournalEntry, error) {
+	query := `SELECT id, trade_id, entry_type, reason, tags, screenshot_url, market_snapshot, created_at FROM journal_entries WHERE 1=1`
+	args := []interface{}{}
+	if entryType != "" {
+		query += ` AND entry_type = ?`
+		args = append(args, entryType)
+	}
+	if tags != "" {
+		query += ` AND tags LIKE ?`
+		args = append(args, "%"+tags+"%")
+	}
+	query += ` ORDER BY created_at DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
