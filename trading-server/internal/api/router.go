@@ -19,6 +19,15 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 		JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	// Serve frontend static files (if built)
+	fs := http.FileServer(http.Dir("frontend-dist"))
+	r.Handle("/assets/*", fs)
+	r.Handle("/favicon.svg", fs)
+	r.Handle("/icons.svg", fs)
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "frontend-dist/index.html")
+	})
+
 	// Protected: all API routes require Bearer token
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(AuthMiddleware(apiToken))
