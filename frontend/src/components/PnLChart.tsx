@@ -1,29 +1,49 @@
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { useMemo } from "react";
 import type { TradeRecord } from "../api/types";
 
 export function PnLChart({ trades }: { trades: TradeRecord[] }) {
-  const filled = trades.filter(t => t.Status === "FILLED" && t.PnL !== 0).reverse();
-  let cumulative = 0;
-  const data = filled.map(t => {
-    cumulative += t.PnL;
-    return { time: t.CreatedAt.slice(5, 19).replace("T", " "), pnl: +cumulative.toFixed(2) };
-  });
+  const { path, area } = useMemo(() => {
+    const filled = trades.filter(t => t.Status === "FILLED" && t.PnL !== 0).reverse();
+    if (filled.length < 2) return { path: "", area: "" };
+
+    let cumulative = 0;
+    const values = filled.map(t => { cumulative += t.PnL; return cumulative; });
+
+    const w = 400, h = 120;
+    const max = Math.max(...values, Math.abs(values[0] || 1)) * 1.1;
+    const min = Math.min(...values, -Math.abs(values[0] || 1) * 0.1) * 1.1;
+    const range = max - min || 1;
+    const step = w / Math.max(values.length - 1, 1);
+    const getY = (val: number) => h - ((val - min) / range) * (h - 20) - 10;
+    const points = values.map((v, i) => `${(i * step).toFixed(1)},${getY(v).toFixed(1)}`);
+    const pathStr = `M ${points.join(" L ")}`;
+    return { path: pathStr, area: `${pathStr} L ${w},${h} L 0,${h} Z` };
+  }, [trades]);
 
   return (
-    <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-gray-300 mb-3">PnL Curve</h3>
-      {data.length === 0 ? (
-        <div className="text-gray-600 text-center py-8">No completed trades yet</div>
-      ) : (
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={data}>
-            <XAxis dataKey="time" tick={{fontSize:10,fill:"#6b7280"}} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-            <YAxis tick={{fontSize:10,fill:"#6b7280"}} axisLine={false} tickLine={false} width={60} />
-            <Tooltip contentStyle={{background:"#1f2937",border:"1px solid #374151",borderRadius:8,fontSize:12}} labelStyle={{color:"#9ca3af"}} />
-            <Line type="monotone" dataKey="pnl" stroke={cumulative >= 0 ? "#22c55e" : "#ef4444"} strokeWidth={2} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      )}
+    <div className="bg-slate-900/60 backdrop-blur-md border border-slate-700/50 rounded-2xl overflow-hidden shadow-xl h-[320px]">
+      <div className="px-5 py-4 border-b border-slate-700/50 bg-slate-800/20">
+        <h3 className="text-sm font-medium text-slate-200">资金曲线 (原生SVG)</h3>
+      </div>
+      <div className="p-5 flex-1 relative flex items-end pt-8 h-[calc(100%-53px)]">
+        {!path ? (
+          <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">暂无数据</div>
+        ) : (
+          <svg viewBox="0 0 400 120" className="w-full h-full overflow-visible" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#818cf8" stopOpacity="0.5" />
+                <stop offset="100%" stopColor="#818cf8" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <line x1="0" y1="30" x2="400" y2="30" stroke="#334155" strokeDasharray="2 4" opacity="0.5" />
+            <line x1="0" y1="60" x2="400" y2="60" stroke="#334155" strokeDasharray="2 4" opacity="0.5" />
+            <line x1="0" y1="90" x2="400" y2="90" stroke="#334155" strokeDasharray="2 4" opacity="0.5" />
+            <path d={area} fill="url(#chartGrad)" />
+            <path d={path} fill="none" stroke="#818cf8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+          </svg>
+        )}
+      </div>
     </div>
   );
 }
