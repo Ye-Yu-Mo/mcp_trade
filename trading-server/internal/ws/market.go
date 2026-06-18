@@ -66,40 +66,29 @@ func (m *MarketStream) loop() {
 }
 
 func (m *MarketStream) connect() error {
-	// Convert baseURL: https://testnet.binancefuture.com → wss://testnet.binancefuture.com/ws
-	wsURL := strings.Replace(m.baseURL, "https://", "wss://", 1)
+	// Build combined stream URL: wss://host/stream?streams=sym1@stream1/sym2@stream2
+	wsHost := "wss://fstream.binance.com/stream"
 	if strings.Contains(m.baseURL, "testnet") {
-		wsURL = "wss://testnet.binancefuture.com/ws"
-	} else {
-		wsURL = "wss://fstream.binance.com/ws"
+		wsHost = "wss://testnet.binancefuture.com/stream"
 	}
 
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		return fmt.Errorf("dial %s: %w", wsURL, err)
-	}
-	defer conn.Close()
-
-	// Subscribe to streams
 	streams := make([]string, 0, len(m.symbols)*3)
 	for _, sym := range m.symbols {
 		s := strings.ToLower(sym)
 		streams = append(streams,
 			s+"@bookTicker",
 			s+"@kline_1h",
-			s+"@depth20",
+			s+"@depth20@100ms",
 		)
 	}
+	wsURL := wsHost + "?streams=" + strings.Join(streams, "/")
 
-	subMsg := map[string]interface{}{
-		"method": "SUBSCRIBE",
-		"params": streams,
-		"id":     1,
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		return fmt.Errorf("dial %s: %w", wsURL, err)
 	}
-	if err := conn.WriteJSON(subMsg); err != nil {
-		return fmt.Errorf("subscribe: %w", err)
-	}
-	log.Printf("ws market: subscribed to %d streams for %v", len(streams), m.symbols)
+	defer conn.Close()
+	log.Printf("ws market: connected to %s (%d streams)", wsHost, len(streams))
 
 	// Read messages
 	for {
