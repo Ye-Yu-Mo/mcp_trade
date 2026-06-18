@@ -103,4 +103,27 @@ export function registerMarketTools(server: any, client: TradingClient) {
       };
     },
   );
+
+  // --- market.watch ---
+  server.registerTool(
+    "market.watch",
+    {
+      description:
+        "一键获取所有订阅币种的最新行情快照。返回价格、K线、订单簿数据。用于AI快速掌握全局市场状态，比逐个调用 market.price 更高效。数据来自内存缓存，延迟 < 100ms。",
+      inputSchema: {},
+    },
+    async () => {
+      const snapshot = await client.getWatch();
+      const prices = snapshot.prices || {};
+      const symbols = Object.keys(prices).filter((k) => !k.includes("_balance"));
+      const lines = ["## Market Snapshot", "", "| Symbol | Price |", "|--------|-------|"];
+      for (const sym of symbols) {
+        lines.push(`| ${sym} | ${prices[sym]} |`);
+      }
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+        structuredContent: snapshot,
+      };
+    },
+  );
 }

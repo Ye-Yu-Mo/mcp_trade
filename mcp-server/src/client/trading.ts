@@ -151,4 +151,8 @@ export class TradingClient {
   async getPerformance(): Promise<PerformanceStats> {
     return this.get<PerformanceStats>("/api/v1/trade/performance");
   }
+
+  async getWatch(): Promise<any> {
+    return this.get<any>("/api/v1/market/watch");
+  }
 }

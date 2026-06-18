@@ -7,10 +7,11 @@ import (
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/risk"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/store"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
 )
 
 // NewRouter creates and configures the chi router with all API routes.
-func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st *store.Store) *chi.Mux {
+func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st *store.Store, cache *ws.MarketCache) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Public: health check
@@ -23,7 +24,9 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 		r.Use(AuthMiddleware(apiToken))
 
 		market := NewMarketHandler(client)
+		market.cache = cache
 		account := NewAccountHandler(client)
+		account.cache = cache
 		order := NewOrderHandler(client, riskMgr, st)
 		trade := NewTradeHandler(st)
 
@@ -31,6 +34,7 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 			r.Get("/klines", market.HandleKlines)
 			r.Get("/ticker", market.HandleTicker)
 			r.Get("/orderbook", market.HandleOrderBook)
+			r.Get("/watch", market.HandleWatch)
 		})
 		r.Route("/account", func(r chi.Router) {
 			r.Get("/balance", account.HandleBalance)

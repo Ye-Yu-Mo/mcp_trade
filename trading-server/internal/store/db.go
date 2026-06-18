@@ -96,6 +96,15 @@ func (s *Store) UpdateTradePnL(orderID string, pnl float64) error {
 	return err
 }
 
+// UpdateTradeByOrderID updates a trade's status, pnl, and avg price by order ID.
+func (s *Store) UpdateTradeByOrderID(orderID, status string, pnl, avgPrice float64) error {
+	_, err := s.db.Exec(
+		`UPDATE trades SET status=?, pnl=?, price=CASE WHEN ? > 0 THEN ? ELSE price END, updated_at=CURRENT_TIMESTAMP WHERE order_id=? AND status='OPEN'`,
+		status, pnl, avgPrice, avgPrice, orderID,
+	)
+	return err
+}
+
 // GetDailyPnL returns the sum of realized PnL for today (UTC).
 func (s *Store) GetDailyPnL() (float64, error) {
 	var pnl sql.NullFloat64

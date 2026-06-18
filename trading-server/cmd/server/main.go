@@ -9,6 +9,7 @@ import (
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/config"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/risk"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/store"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
 )
 
 func main() {
@@ -50,8 +51,21 @@ func main() {
 	defer st.Close()
 	log.Printf("database initialized: %s", cfg.DBPath)
 
-	// Setup HTTP router
-	router := api.NewRouter(client, cfg.APIToken, riskMgr, st)
+	// Initialize market data cache and WebSocket streams
+	cache := ws.NewMarketCache()
+
+	marketStream := ws.NewMarketStream(cfg.BaseURL, cache, []string{"BTCUSDT", "ETHUSDT"})
+	marketStream.Start()
+	defer marketStream.Stop()
+
+	userStream := ws.NewUserDataStream(client, st, cache, cfg.BaseURL)
+	userStream.Start()
+	defer userStream.Stop()
+
+	log.Println("ws streams started: market + userdata")
+
+	// Setup HTTP router with cache
+	router := api.NewRouter(client, cfg.APIToken, riskMgr, st, cache)
 
 	addr := ":" + cfg.ServerPort
 	log.Printf("trading server starting on %s (env=%s)", addr, cfg.BaseURL)

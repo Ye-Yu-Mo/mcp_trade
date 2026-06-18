@@ -4,11 +4,13 @@ import (
 	"net/http"
 
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
 )
 
 // AccountHandler handles account-related endpoints.
 type AccountHandler struct {
 	client binance.Trader
+	cache  *ws.MarketCache
 }
 
 // NewAccountHandler creates an AccountHandler.

@@ -485,3 +485,26 @@ func (c *Client) SetLeverage(symbol string, leverage int) error {
 	_, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/leverage", params, true)
 	return err
 }
+
+// GetListenKey creates a new user data stream listen key.
+func (c *Client) GetListenKey() (string, error) {
+	body, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/listenKey", nil, true)
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		ListenKey string `json:"listenKey"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("parse listenKey: %w", err)
+	}
+	return result.ListenKey, nil
+}
+
+// KeepAliveListenKey extends the listen key validity by 60 minutes.
+func (c *Client) KeepAliveListenKey(listenKey string) error {
+	params := url.Values{}
+	params.Set("listenKey", listenKey)
+	_, err := c.request(context.Background(), http.MethodPut, "/fapi/v1/listenKey", params, true)
+	return err
+}

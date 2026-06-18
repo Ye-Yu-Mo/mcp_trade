@@ -5,11 +5,13 @@ import (
 	"strconv"
 
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
 )
 
 // MarketHandler handles market data endpoints.
 type MarketHandler struct {
 	client binance.Trader
+	cache  *ws.MarketCache
 }
 
 // NewMarketHandler creates a MarketHandler.
@@ -58,13 +60,29 @@ func (h *MarketHandler) HandleTicker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cache-first
+	if h.cache != nil {
+		if price, ok := h.cache.GetPrice(symbol); ok {
+			JSON(w, http.StatusOK, &binance.Ticker{Symbol: symbol, Price: price})
+			return
+		}
+	}
+
 	ticker, err := h.client.GetTicker(symbol)
 	if err != nil {
 		Error(w, http.StatusInternalServerError, "BINANCE_ERROR", err.Error())
 		return
 	}
-
 	JSON(w, http.StatusOK, ticker)
+}
+
+// HandleWatch handles GET /api/v1/market/watch — returns all cached market data.
+func (h *MarketHandler) HandleWatch(w http.ResponseWriter, r *http.Request) {
+	if h.cache == nil {
+		Error(w, http.StatusInternalServerError, "NO_CACHE", "market cache not initialized")
+		return
+	}
+	JSON(w, http.StatusOK, h.cache.Snapshot())
 }
 
 // HandleOrderBook handles GET /api/v1/market/orderbook
