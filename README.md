@@ -4,19 +4,44 @@
 
 ## 架构
 
+```mermaid
+flowchart LR
+    AI[Claude Code<br/>AI 决策] <-->|MCP/stdio<br/>本地| MCP[MCP Server<br/>TypeScript]
+    MCP <-->|HTTP/Bearer| TS[Trading Server<br/>Go]
+    TS <-->|REST/WS| BN[Binance<br/>Futures]
+    TS -->|WebSocket 实时| FE[Frontend<br/>React + Tailwind]
+    TS -->|HTTP| FE
 ```
-┌──────────────┐   MCP/stdio   ┌──────────────┐   HTTP/Bearer   ┌─────────────────┐   REST/WS   ┌───────────┐
-│  Claude Code  │ ◄──────────► │  MCP Server   │ ◄─────────────► │  Trading Server  │ ◄─────────► │  Binance  │
-│  (AI 决策)    │   本地        │  (TypeScript) │                 │  (Go)            │             │  Futures  │
-└──────────────┘               └──────────────┘                └─────────────────┘            └───────────┘
-                                                                   │
-                                                    WebSocket (实时) │ HTTP
-                                                                   │
-                                                            ┌──────▼────────┐
-                                                            │   Frontend     │
-                                                            │   (React+TW)  │
-                                                            │   看板         │
-                                                            └───────────────┘
+
+### 数据流
+
+```mermaid
+sequenceDiagram
+    participant AI as Claude Code
+    participant MCP as MCP Server
+    participant TS as Trading Server
+    participant BN as Binance
+    participant DB as DuckDB
+
+    AI->>MCP: market.klines(BTCUSDT,1h)
+    MCP->>TS: GET /api/v1/market/klines
+    TS-->>MCP: 缓存命中 / WS 数据
+    MCP-->>AI: Markdown 表格 + JSON
+
+    AI->>MCP: order.place(preview)
+    MCP->>TS: POST /api/v1/order/place
+    TS->>TS: RiskManager 风控检查
+    TS-->>MCP: plan_id + 风险预览
+    MCP-->>AI: 预览确认
+
+    AI->>MCP: order.place(confirm)
+    MCP->>TS: POST confirm=true
+    TS->>BN: 下单
+    TS->>DB: 写入交易记录
+    BN-->>TS: ORDER_TRADE_UPDATE (WS)
+    TS->>DB: 更新 FILLED + pnl
+    TS-->>MCP: 订单结果
+    MCP-->>AI: 成交确认
 ```
 
 ## 快速开始
