@@ -9,6 +9,9 @@ import (
 // Skip tests if credentials are not set.
 func testClient(t *testing.T) *Client {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	apiKey := os.Getenv("BINANCE_API_KEY")
 	apiSecret := os.Getenv("BINANCE_API_SECRET")
 	if apiKey == "" || apiSecret == "" {
