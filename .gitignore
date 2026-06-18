@@ -1,2 +1,41 @@
+# Intermediate docs (test docs, strategy docs, etc.)
+# Important docs like README: use git add -f
 *.md
+*.mdx
+
+# MCP config (per-user)
 .mcp.json
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+bin/
+
+# Environment
+.env
+.env.local
+
+# Database
+*.duckdb
+*.duckdb.wal
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+*.test
+*.out
+
+# Misc
+.npmrc
+package-lock.json
+mcp-server/.mcp-config.json
