@@ -58,6 +58,23 @@ export class TradingClient {
     return this.get<any[]>("/api/v1/market/calendar");
   }
 
+  async setAlert(symbol: string, price: number, direction: string, message: string): Promise<{ id: string }> {
+    const form = new URLSearchParams();
+    form.set("symbol", symbol);
+    form.set("price", String(price));
+    form.set("direction", direction);
+    form.set("message", message);
+    return this.post<{ id: string }>("/api/v1/market/alert", form);
+  }
+
+  async getAlerts(): Promise<any[]> {
+    return this.get<any[]>("/api/v1/market/alerts");
+  }
+
+  async removeAlert(id: string): Promise<void> {
+    await this.del<void>(`/api/v1/market/alert?id=${id}`);
+  }
+
   async getTicker(symbol: string): Promise<Ticker> {
     return this.get<Ticker>(`/api/v1/market/ticker?symbol=${symbol}`);
   }
@@ -165,5 +182,17 @@ export class TradingClient {
 
   async getWatch(): Promise<any> {
     return this.get<any>("/api/v1/market/watch");
+  }
+
+  async getScanner(limit = 20): Promise<any[]> {
+    return this.get<any[]>(`/api/v1/market/scanner?limit=${limit}`);
+  }
+
+  async getFundingRate(symbol = "BTCUSDT"): Promise<any> {
+    return this.get<any>(`/api/v1/market/funding?symbol=${symbol}`);
+  }
+
+  async getOpenInterest(symbol = "BTCUSDT"): Promise<any> {
+    return this.get<any>(`/api/v1/market/oi?symbol=${symbol}`);
   }
 }

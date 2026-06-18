@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -385,6 +387,9 @@ func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
 	if req.OrderType == "STOP_MARKET" {
 		params.Set("stopPrice", strconv.FormatFloat(req.StopPrice, 'f', -1, 64))
 	}
+	if req.ReduceOnly {
+		params.Set("reduceOnly", "true")
+	}
 
 	body, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/order", params, true)
 	if err != nil {
@@ -507,4 +512,104 @@ func (c *Client) KeepAliveListenKey(listenKey string) error {
 	params.Set("listenKey", listenKey)
 	_, err := c.request(context.Background(), http.MethodPut, "/fapi/v1/listenKey", params, true)
 	return err
+}
+
+// --- Scanner ---
+
+type ticker24hRaw struct {
+	Symbol             string `json:"symbol"`
+	LastPrice          string `json:"lastPrice"`
+	PriceChangePercent string `json:"priceChangePercent"`
+	HighPrice          string `json:"highPrice"`
+	LowPrice           string `json:"lowPrice"`
+	Volume             string `json:"volume"`
+	QuoteVolume        string `json:"quoteVolume"`
+}
+
+// ScanMarket returns top symbols by 24h volume. limit: max results (default 10).
+func (c *Client) ScanMarket(limit int) ([]ScannerResult, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	body, err := c.get(context.Background(), "/fapi/v1/ticker/24hr", nil, false)
+	if err != nil {
+		return nil, err
+	}
+	var raw []ticker24hRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse ticker24h: %w", err)
+	}
+
+	// Filter USDT pairs only, sort by quoteVolume desc
+	results := make([]ScannerResult, 0, len(raw))
+	for _, r := range raw {
+		if !strings.HasSuffix(r.Symbol, "USDT") {
+			continue
+		}
+		last, _ := strconv.ParseFloat(r.LastPrice, 64)
+		pct, _ := strconv.ParseFloat(r.PriceChangePercent, 64)
+		high, _ := strconv.ParseFloat(r.HighPrice, 64)
+		low, _ := strconv.ParseFloat(r.LowPrice, 64)
+		vol, _ := strconv.ParseFloat(r.Volume, 64)
+		qvol, _ := strconv.ParseFloat(r.QuoteVolume, 64)
+		results = append(results, ScannerResult{
+			Symbol: r.Symbol, LastPrice: last, PriceChangePct: pct,
+			HighPrice: high, LowPrice: low, Volume: vol, QuoteVolume: qvol,
+		})
+	}
+
+	// Sort by quoteVolume descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].QuoteVolume > results[j].QuoteVolume
+	})
+
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+// --- Funding Rate & Open Interest ---
+
+type fundingRaw struct {
+	Symbol      string `json:"symbol"`
+	FundingRate string `json:"fundingRate"`
+	FundingTime int64  `json:"fundingTime"`
+}
+
+type oiRaw struct {
+	Symbol       string `json:"symbol"`
+	OpenInterest string `json:"openInterest"`
+}
+
+// GetFundingRate returns the current funding rate for a symbol.
+func (c *Client) GetFundingRate(symbol string) (float64, int64, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	body, err := c.get(context.Background(), "/fapi/v1/fundingRate", params, false)
+	if err != nil {
+		return 0, 0, err
+	}
+	var raw []fundingRaw
+	if err := json.Unmarshal(body, &raw); err != nil || len(raw) == 0 {
+		return 0, 0, fmt.Errorf("parse funding rate: %w", err)
+	}
+	rate, _ := strconv.ParseFloat(raw[0].FundingRate, 64)
+	return rate, raw[0].FundingTime, nil
+}
+
+// GetOpenInterest returns the current open interest for a symbol.
+func (c *Client) GetOpenInterest(symbol string) (float64, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	body, err := c.get(context.Background(), "/fapi/v1/openInterest", params, false)
+	if err != nil {
+		return 0, err
+	}
+	var raw oiRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return 0, fmt.Errorf("parse OI: %w", err)
+	}
+	oi, _ := strconv.ParseFloat(raw.OpenInterest, 64)
+	return oi, nil
 }

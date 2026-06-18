@@ -13,10 +13,9 @@ import (
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
 )
 
-func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st *store.Store, cache *ws.MarketCache, startTime time.Time, marketStream *ws.MarketStream, userStream *ws.UserDataStream) *chi.Mux {
+func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st *store.Store, cache *ws.MarketCache, alertStore *ws.AlertStore, startTime time.Time, marketStream *ws.MarketStream, userStream *ws.UserDataStream) *chi.Mux {
 	r := chi.NewRouter()
 
-	// Public: health check with status details
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		snap := cache.Snapshot()
 		prices := snap["prices"].(map[string]float64)
@@ -27,15 +26,14 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 			}
 		}
 		JSON(w, http.StatusOK, map[string]interface{}{
-			"status":       "ok",
-			"ws_market":    marketStream.Connected(),
-			"ws_userdata":  userStream.Connected(),
-			"cache_items":  count,
-			"uptime":       fmt.Sprintf("%.0fs", time.Since(startTime).Seconds()),
+			"status":      "ok",
+			"ws_market":   marketStream.Connected(),
+			"ws_userdata": userStream.Connected(),
+			"cache_items": count,
+			"uptime":      fmt.Sprintf("%.0fs", time.Since(startTime).Seconds()),
 		})
 	})
 
-	// Serve frontend static files
 	fs := http.FileServer(http.Dir("frontend-dist"))
 	r.Handle("/assets/*", fs)
 	r.Handle("/favicon.svg", fs)
@@ -44,12 +42,12 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 		http.ServeFile(w, r, "frontend-dist/index.html")
 	})
 
-	// Protected API routes
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(AuthMiddleware(apiToken))
 
 		market := NewMarketHandler(client)
 		market.cache = cache
+		market.alertStore = alertStore
 		account := NewAccountHandler(client)
 		account.cache = cache
 		order := NewOrderHandler(client, riskMgr, st)
@@ -59,7 +57,13 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 			r.Get("/klines", market.HandleKlines)
 			r.Get("/ticker", market.HandleTicker)
 			r.Get("/orderbook", market.HandleOrderBook)
+			r.Get("/scanner", market.HandleScanner)
+			r.Get("/funding", market.HandleFunding)
+			r.Get("/oi", market.HandleOI)
 			r.Get("/calendar", market.HandleCalendar)
+			r.Post("/alert", market.HandleSetAlert)
+			r.Get("/alerts", market.HandleListAlerts)
+			r.Delete("/alert", market.HandleRemoveAlert)
 			r.Get("/watch", market.HandleWatch)
 		})
 		r.Route("/account", func(r chi.Router) {

@@ -52,13 +52,14 @@ func main() {
 	log.Printf("[init] database: %s", cfg.DBPath)
 
 	cache := ws.NewMarketCache()
+	alertStore := ws.NewAlertStore(cache)
 	marketStream := ws.NewMarketStream(cfg.BaseURL, cache, []string{"BTCUSDT", "ETHUSDT"}, client)
 	marketStream.Start()
 	userStream := ws.NewUserDataStream(client, st, cache, cfg.BaseURL)
 	userStream.Start()
 	log.Println("[init] ws streams: market + userdata")
 
-	router := api.NewRouter(client, cfg.APIToken, riskMgr, st, cache, startTime, marketStream, userStream)
+	router := api.NewRouter(client, cfg.APIToken, riskMgr, st, cache, alertStore, startTime, marketStream, userStream)
 
 	srv := &http.Server{Addr: ":" + cfg.ServerPort, Handler: router}
 

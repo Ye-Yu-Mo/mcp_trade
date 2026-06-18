@@ -245,3 +245,33 @@ func TestGetOrder(t *testing.T) {
 	// Clean up
 	client.CancelOrder("BTCUSDT", order.OrderID)
 }
+
+func TestScanMarket(t *testing.T) {
+	client := testClient(t)
+	results, err := client.ScanMarket(10)
+	if err != nil {
+		t.Fatalf("ScanMarket() error: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected non-empty scanner results")
+	}
+	if len(results) > 10 {
+		t.Errorf("expected max 10 results, got %d", len(results))
+	}
+	// First entry should have highest volume
+	for _, r := range results {
+		if r.Symbol == "" {
+			t.Error("symbol is empty")
+		}
+		if r.LastPrice <= 0 {
+			t.Errorf("%s: lastPrice = %f", r.Symbol, r.LastPrice)
+		}
+	}
+	// Verify sorted by volume descending
+	for i := 1; i < len(results); i++ {
+		if results[i].QuoteVolume > results[i-1].QuoteVolume {
+			t.Errorf("not sorted by volume: results[%d].vol=%f > results[%d].vol=%f",
+				i, results[i].QuoteVolume, i-1, results[i-1].QuoteVolume)
+		}
+	}
+}

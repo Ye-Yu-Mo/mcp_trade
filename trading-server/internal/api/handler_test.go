@@ -43,6 +43,15 @@ func (m *mockTrader) GetOpenOrders(symbol string) ([]binance.Order, error) {
 func (m *mockTrader) GetOrder(symbol string, orderID int64) (*binance.Order, error) {
 	return m.order, m.err
 }
+func (m *mockTrader) ScanMarket(limit int) ([]binance.ScannerResult, error) {
+	return nil, m.err
+}
+func (m *mockTrader) GetFundingRate(symbol string) (float64, int64, error) {
+	return 0, 0, m.err
+}
+func (m *mockTrader) GetOpenInterest(symbol string) (float64, error) {
+	return 0, m.err
+}
 func (m *mockTrader) GetBalance() ([]binance.Balance, error) {
 	return m.balances, m.err
 }

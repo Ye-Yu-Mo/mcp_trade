@@ -57,6 +57,7 @@ type NewOrderRequest struct {
 	Quantity     float64 // 数量
 	Price        float64 // 限价（LIMIT 必填）
 	StopPrice    float64 // 止损价（STOP_MARKET 必填）
+	ReduceOnly   bool    // 仅减仓（平仓用）
 }
 
 // Order represents a single order returned from Binance.
@@ -94,4 +95,15 @@ type RiskCheck struct {
 	Passed  bool     `json:"passed"`
 	Checks  []string `json:"checks"`
 	Warnings []string `json:"warnings"`
+}
+
+// ScannerResult represents a single market scan entry.
+type ScannerResult struct {
+	Symbol         string  `json:"symbol"`
+	LastPrice      float64 `json:"last_price"`
+	PriceChangePct float64 `json:"change_24h_pct"`
+	HighPrice      float64 `json:"high_24h"`
+	LowPrice       float64 `json:"low_24h"`
+	Volume         float64 `json:"volume_24h"`
+	QuoteVolume    float64 `json:"quote_volume_24h"`
 }
