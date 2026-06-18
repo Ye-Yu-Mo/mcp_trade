@@ -77,8 +77,16 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 		}
 		dailyPnL, _ := h.store.GetDailyPnL()
 
+		// For market orders, use current ticker price for risk check
+		checkPrice := roundedPrice
+		if roundedPrice == 0 {
+			if ticker, err := h.client.GetTicker(symbol); err == nil {
+				checkPrice = ticker.Price
+			}
+		}
+
 		riskErr := h.risk.CheckOrder(risk.CheckInput{
-			Symbol: symbol, Quantity: roundedQty, Price: roundedPrice,
+			Symbol: symbol, Quantity: roundedQty, Price: checkPrice,
 			StopPrice: stopPrice, Balance: usdtBalance, DailyPnL: dailyPnL,
 		})
 		riskPassed := riskErr == nil
