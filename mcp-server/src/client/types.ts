@@ -76,3 +76,33 @@ export interface OrderPreview {
     warnings: string[] | null;
   };
 }
+
+// --- Trade Journal Types ---
+
+export interface TradeRecord {
+  ID: number;
+  Symbol: string;
+  Side: string;
+  Quantity: number;
+  Price: number;
+  OrderID: string;
+  Status: string;
+  EntryReason: string;
+  ExitReason: string;
+  PnL: number;
+  MarketSnapshot: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export interface PerformanceStats {
+  total_trades: number;
+  win_trades: number;
+  loss_trades: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_pnl: number;
+  max_win: number;
+  max_loss: number;
+  profit_factor: number;
+}

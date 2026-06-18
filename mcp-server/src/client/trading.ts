@@ -1,4 +1,4 @@
-import type { Kline, Ticker, OrderBook, Balance, Position, Order, OrderPreview } from "./types.js";
+import type { Kline, Ticker, OrderBook, Balance, Position, Order, OrderPreview, TradeRecord, PerformanceStats } from "./types.js";
 
 export class TradingClient {
   constructor(
@@ -128,5 +128,27 @@ export class TradingClient {
 
   async getOrder(symbol: string, orderId: number): Promise<Order> {
     return this.get<Order>(`/api/v1/order/status?symbol=${symbol}&order_id=${orderId}`);
+  }
+
+  // --- Trade journal methods ---
+
+  async getTradeHistory(symbol?: string, limit = 50): Promise<TradeRecord[]> {
+    const path = symbol
+      ? `/api/v1/trade/history?symbol=${symbol}&limit=${limit}`
+      : `/api/v1/trade/history?limit=${limit}`;
+    return this.get<TradeRecord[]>(path);
+  }
+
+  async postJournal(entryType: string, reason: string, tags?: string, tradeId?: number): Promise<{ id: number }> {
+    const form = new URLSearchParams();
+    form.set("entry_type", entryType);
+    form.set("reason", reason);
+    if (tags) form.set("tags", tags);
+    if (tradeId) form.set("trade_id", String(tradeId));
+    return this.post<{ id: number }>("/api/v1/trade/journal", form);
+  }
+
+  async getPerformance(): Promise<PerformanceStats> {
+    return this.get<PerformanceStats>("/api/v1/trade/performance");
   }
 }
