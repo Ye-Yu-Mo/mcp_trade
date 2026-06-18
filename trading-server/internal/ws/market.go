@@ -2,7 +2,6 @@ package ws
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -12,38 +11,38 @@ import (
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 )
 
-// MarketStream connects to Binance WebSocket for real-time market data.
+// MarketClient abstracts the Binance client for REST fallback.
+type MarketClient interface {
+	GetTicker(symbol string) (*binance.Ticker, error)
+	GetKlines(symbol, interval string, limit int) ([]binance.Kline, error)
+	GetOrderBook(symbol string, limit int) (*binance.OrderBook, error)
+}
+
+// MarketStream fetches real-time market data via WebSocket with REST fallback.
 type MarketStream struct {
 	baseURL string
 	cache   *MarketCache
 	symbols []string
+	client  MarketClient
 	done    chan struct{}
 }
 
-// NewMarketStream creates a market stream for the given symbols.
-func NewMarketStream(baseURL string, cache *MarketCache, symbols []string) *MarketStream {
-	return &MarketStream{
-		baseURL: baseURL,
-		cache:   cache,
-		symbols: symbols,
-		done:    make(chan struct{}),
-	}
+func NewMarketStream(baseURL string, cache *MarketCache, symbols []string, client MarketClient) *MarketStream {
+	return &MarketStream{baseURL: baseURL, cache: cache, symbols: symbols, client: client, done: make(chan struct{})}
 }
 
-// Start connects to the WebSocket and begins processing messages.
-// It auto-reconnects on disconnect with exponential backoff.
 func (m *MarketStream) Start() {
-	go m.loop()
+	go m.runWS()
+	go m.runRESTPoll()
 }
 
-// Stop signals the stream to shut down.
-func (m *MarketStream) Stop() {
-	close(m.done)
-}
+func (m *MarketStream) Stop() { close(m.done) }
 
-func (m *MarketStream) loop() {
+// --- WebSocket mode (mainnet) ---
+
+func (m *MarketStream) runWS() {
 	backoff := 1 * time.Second
-	maxBackoff := 30 * time.Second
+	const maxBackoff = 30 * time.Second
 
 	for {
 		select {
@@ -52,114 +51,115 @@ func (m *MarketStream) loop() {
 		default:
 		}
 
-		if err := m.connect(); err != nil {
-			log.Printf("ws market: %v, reconnecting in %v", err, backoff)
-			time.Sleep(backoff)
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-			continue
+		wsHost := m.wsHost()
+		streams := make([]string, 0, len(m.symbols)*3)
+		for _, sym := range m.symbols {
+			s := strings.ToLower(sym)
+			streams = append(streams, s+"@bookTicker", s+"@kline_1h", s+"@depth20@100ms")
 		}
-		backoff = 1 * time.Second // reset on clean disconnect
+		wsURL := wsHost + "?streams=" + strings.Join(streams, "/")
+
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if err != nil {
+			log.Printf("ws market: cannot connect (%v), using REST polling", err)
+			return // fall back to REST
+		}
+
+		log.Printf("ws market: connected to %s", wsHost)
+		backoff = 1 * time.Second
+
+		for {
+			select {
+			case <-m.done:
+				conn.Close()
+				return
+			default:
+			}
+			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("ws market: read: %v, reconnecting", err)
+				conn.Close()
+				break
+			}
+			m.parseWSMessage(msg)
+		}
+
+		time.Sleep(backoff)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
 	}
 }
 
-func (m *MarketStream) connect() error {
-	// Build combined stream URL: wss://host/stream?streams=sym1@stream1/sym2@stream2
-	wsHost := "wss://fstream.binance.com/stream"
+func (m *MarketStream) wsHost() string {
 	if strings.Contains(m.baseURL, "testnet") {
-		wsHost = "wss://testnet.binancefuture.com/stream"
+		return "wss://testnet.binancefuture.com/stream"
 	}
+	return "wss://fstream.binance.com/stream"
+}
 
-	streams := make([]string, 0, len(m.symbols)*3)
-	for _, sym := range m.symbols {
-		s := strings.ToLower(sym)
-		streams = append(streams,
-			s+"@bookTicker",
-			s+"@kline_1h",
-			s+"@depth20@100ms",
-		)
+func (m *MarketStream) parseWSMessage(msg []byte) {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(msg, &raw) != nil {
+		return
 	}
-	wsURL := wsHost + "?streams=" + strings.Join(streams, "/")
-
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		return fmt.Errorf("dial %s: %w", wsURL, err)
+	if data, ok := raw["data"]; ok {
+		var streamName string
+		json.Unmarshal(raw["stream"], &streamName)
+		m.parseEvent(streamName, data)
 	}
-	defer conn.Close()
-	log.Printf("ws market: connected to %s (%d streams)", wsHost, len(streams))
+}
 
-	// Read messages
+// --- REST polling mode (testnet fallback) ---
+
+func (m *MarketStream) runRESTPoll() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-m.done:
-			return nil
-		default:
+			return
+		case <-ticker.C:
+			for _, sym := range m.symbols {
+				if t, err := m.client.GetTicker(sym); err == nil {
+					m.cache.SetPrice(sym, t.Price)
+				}
+				if klines, err := m.client.GetKlines(sym, "1h", 1); err == nil && len(klines) > 0 {
+					m.cache.SetKline(sym, "1h", klines[0])
+				}
+				if ob, err := m.client.GetOrderBook(sym, 20); err == nil {
+					m.cache.SetOrderBook(sym, *ob)
+				}
+			}
 		}
-
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			return fmt.Errorf("read: %w", err)
-		}
-
-		m.handleMessage(msg)
 	}
 }
 
-func (m *MarketStream) handleMessage(msg []byte) {
-	// Try to parse as a combined stream or single event
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(msg, &raw); err != nil {
-		return
-	}
-
-	// Combined stream: {"stream":"btcusdt@bookTicker","data":{...}}
-	if streamName, ok := raw["stream"]; ok {
-		var name string
-		json.Unmarshal(streamName, &name)
-		if data, ok := raw["data"]; ok {
-			m.parseEvent(name, data)
-		}
-		return
-	}
-
-	// Single event (from direct subscription): try to identify type
-	if _, ok := raw["e"]; ok {
-		var eventType string
-		json.Unmarshal(raw["e"], &eventType)
-		m.parseSingleEvent(eventType, msg)
-	}
-}
+// --- Event parsing ---
 
 func (m *MarketStream) parseEvent(streamName string, data json.RawMessage) {
 	symbol := extractSymbol(streamName)
-
 	switch {
 	case strings.Contains(streamName, "@bookTicker"):
 		var evt struct {
 			BidPrice string `json:"b"`
 			BidQty   string `json:"B"`
 			AskPrice string `json:"a"`
-			AskQty   string `json:"A"`
 		}
 		if json.Unmarshal(data, &evt) == nil {
 			bid, _ := strconv.ParseFloat(evt.BidPrice, 64)
 			bidQty, _ := strconv.ParseFloat(evt.BidQty, 64)
 			ask, _ := strconv.ParseFloat(evt.AskPrice, 64)
-			askQty, _ := strconv.ParseFloat(evt.AskQty, 64)
-			// Update price from mid-price or last traded
-			// bookTicker gives best bid/ask, use mid for price estimate
-			mid := (bid + ask) / 2
-			m.cache.SetPrice(symbol, mid)
+			m.cache.SetPrice(symbol, (bid+ask)/2)
 			m.cache.SetOrderBook(symbol, binance.OrderBook{
 				Symbol: symbol,
 				Bids:   []binance.OrderBookLevel{{Price: bid, Quantity: bidQty}},
-				Asks:   []binance.OrderBookLevel{{Price: ask, Quantity: askQty}},
+				Asks:   []binance.OrderBookLevel{{Price: ask, Quantity: 0}},
 			})
 		}
-
 	case strings.Contains(streamName, "@kline"):
 		var evt struct {
 			Kline struct {
@@ -170,7 +170,6 @@ func (m *MarketStream) parseEvent(streamName string, data json.RawMessage) {
 				Low       string `json:"l"`
 				Close     string `json:"c"`
 				Volume    string `json:"v"`
-				Closed    bool   `json:"x"`
 			} `json:"k"`
 		}
 		if json.Unmarshal(data, &evt) == nil {
@@ -179,61 +178,38 @@ func (m *MarketStream) parseEvent(streamName string, data json.RawMessage) {
 			l, _ := strconv.ParseFloat(evt.Kline.Low, 64)
 			c, _ := strconv.ParseFloat(evt.Kline.Close, 64)
 			v, _ := strconv.ParseFloat(evt.Kline.Volume, 64)
-			k := binance.Kline{
-				OpenTime:  evt.Kline.StartTime,
-				Open:      o,
-				High:      h,
-				Low:       l,
-				Close:     c,
-				Volume:    v,
-				CloseTime: evt.Kline.CloseTime,
-			}
-			// Extract interval from stream name, e.g., "btcusdt@kline_1h"
 			interval := "1h"
 			if idx := strings.LastIndex(streamName, "_"); idx > 0 {
 				interval = streamName[idx+1:]
 			}
-			m.cache.SetKline(symbol, interval, k)
-			// Also update price from kline close
+			m.cache.SetKline(symbol, interval, binance.Kline{
+				OpenTime: evt.Kline.StartTime, Open: o, High: h, Low: l, Close: c, Volume: v,
+				CloseTime: evt.Kline.CloseTime,
+			})
 			m.cache.SetPrice(symbol, c)
 		}
-
 	case strings.Contains(streamName, "@depth"):
 		var evt struct {
 			Bids [][]string `json:"bids"`
 			Asks [][]string `json:"asks"`
 		}
 		if json.Unmarshal(data, &evt) == nil {
-			parseLevels := func(data [][]string) []binance.OrderBookLevel {
-				levels := make([]binance.OrderBookLevel, 0, len(data))
-				for _, entry := range data {
-					if len(entry) < 2 {
-						continue
+			parse := func(d [][]string) []binance.OrderBookLevel {
+				lv := make([]binance.OrderBookLevel, 0, len(d))
+				for _, e := range d {
+					if len(e) >= 2 {
+						p, _ := strconv.ParseFloat(e[0], 64)
+						q, _ := strconv.ParseFloat(e[1], 64)
+						lv = append(lv, binance.OrderBookLevel{Price: p, Quantity: q})
 					}
-					price, _ := strconv.ParseFloat(entry[0], 64)
-					qty, _ := strconv.ParseFloat(entry[1], 64)
-					levels = append(levels, binance.OrderBookLevel{Price: price, Quantity: qty})
 				}
-				return levels
+				return lv
 			}
-			m.cache.SetOrderBook(symbol, binance.OrderBook{
-				Symbol: symbol,
-				Bids:   parseLevels(evt.Bids),
-				Asks:   parseLevels(evt.Asks),
-			})
+			m.cache.SetOrderBook(symbol, binance.OrderBook{Symbol: symbol, Bids: parse(evt.Bids), Asks: parse(evt.Asks)})
 		}
 	}
 }
 
-// extractSymbol extracts the trading pair from a stream name.
 func extractSymbol(streamName string) string {
-	// "btcusdt@bookTicker" → "BTCUSDT"
-	parts := strings.SplitN(streamName, "@", 2)
-	return strings.ToUpper(parts[0])
-}
-
-func (m *MarketStream) parseSingleEvent(eventType string, msg []byte) {
-	// Handle non-combined stream events if needed
-	_ = eventType
-	_ = msg
+	return strings.ToUpper(strings.SplitN(streamName, "@", 2)[0])
 }

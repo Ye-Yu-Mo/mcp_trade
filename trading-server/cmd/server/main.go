@@ -54,7 +54,7 @@ func main() {
 	// Initialize market data cache and WebSocket streams
 	cache := ws.NewMarketCache()
 
-	marketStream := ws.NewMarketStream(cfg.BaseURL, cache, []string{"BTCUSDT", "ETHUSDT"})
+	marketStream := ws.NewMarketStream(cfg.BaseURL, cache, []string{"BTCUSDT", "ETHUSDT"}, client)
 	marketStream.Start()
 	defer marketStream.Stop()
 
