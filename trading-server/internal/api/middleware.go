@@ -13,18 +13,18 @@ func AuthMiddleware(token string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			auth := r.Header.Get("Authorization")
 			if auth == "" {
-				Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing Authorization header")
+				Error(w, http.StatusUnauthorized, CodeAuthUnauthorized, "missing Authorization header")
 				return
 			}
 
 			parts := strings.SplitN(auth, " ", 2)
 			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-				Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid Authorization format, expected: Bearer <token>")
+				Error(w, http.StatusUnauthorized, CodeAuthUnauthorized, "invalid Authorization format, expected: Bearer <token>")
 				return
 			}
 
 			if parts[1] != token {
-				Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token")
+				Error(w, http.StatusUnauthorized, CodeAuthUnauthorized, "invalid token")
 				return
 			}
 

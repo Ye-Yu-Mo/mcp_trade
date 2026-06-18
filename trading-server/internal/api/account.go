@@ -22,7 +22,7 @@ func NewAccountHandler(client binance.Trader) *AccountHandler {
 func (h *AccountHandler) HandleBalance(w http.ResponseWriter, r *http.Request) {
 	balances, err := h.client.GetBalance()
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "BINANCE_ERROR", err.Error())
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
 		return
 	}
 
@@ -33,7 +33,7 @@ func (h *AccountHandler) HandleBalance(w http.ResponseWriter, r *http.Request) {
 func (h *AccountHandler) HandlePositions(w http.ResponseWriter, r *http.Request) {
 	positions, err := h.client.GetPositions()
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "BINANCE_ERROR", err.Error())
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
 		return
 	}
 

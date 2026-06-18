@@ -1,7 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
@@ -10,16 +13,29 @@ import (
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
 )
 
-// NewRouter creates and configures the chi router with all API routes.
-func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st *store.Store, cache *ws.MarketCache) *chi.Mux {
+func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st *store.Store, cache *ws.MarketCache, startTime time.Time, marketStream *ws.MarketStream, userStream *ws.UserDataStream) *chi.Mux {
 	r := chi.NewRouter()
 
-	// Public: health check
+	// Public: health check with status details
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-		JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		snap := cache.Snapshot()
+		prices := snap["prices"].(map[string]float64)
+		count := 0
+		for k := range prices {
+			if !strings.Contains(k, "_balance") {
+				count++
+			}
+		}
+		JSON(w, http.StatusOK, map[string]interface{}{
+			"status":       "ok",
+			"ws_market":    marketStream.Connected(),
+			"ws_userdata":  userStream.Connected(),
+			"cache_items":  count,
+			"uptime":       fmt.Sprintf("%.0fs", time.Since(startTime).Seconds()),
+		})
 	})
 
-	// Serve frontend static files (if built)
+	// Serve frontend static files
 	fs := http.FileServer(http.Dir("frontend-dist"))
 	r.Handle("/assets/*", fs)
 	r.Handle("/favicon.svg", fs)
@@ -28,7 +44,7 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 		http.ServeFile(w, r, "frontend-dist/index.html")
 	})
 
-	// Protected: all API routes require Bearer token
+	// Protected API routes
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(AuthMiddleware(apiToken))
 

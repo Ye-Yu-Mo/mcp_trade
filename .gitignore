@@ -39,3 +39,4 @@ Thumbs.db
 .npmrc
 package-lock.json
 mcp-server/.mcp-config.json
+trading-server/mcp-trade.service

@@ -13,6 +13,7 @@ import (
 
 // UserDataStream connects to the Binance User Data Stream for account events.
 type UserDataStream struct {
+	connected bool
 	client  UserDataClient
 	store   TradeStore
 	cache   *MarketCache
@@ -43,6 +44,7 @@ func NewUserDataStream(client UserDataClient, store TradeStore, cache *MarketCac
 }
 
 func (u *UserDataStream) Start() { go u.loop() }
+func (u *UserDataStream) Connected() bool { return u.connected }
 func (u *UserDataStream) Stop()  { close(u.done) }
 
 func (u *UserDataStream) loop() {
@@ -108,6 +110,7 @@ func (u *UserDataStream) connect(listenKey string) error {
 	}
 	defer conn.Close()
 	log.Printf("ws userdata: connected to %s", wsHost)
+	u.connected = true
 
 	for {
 		select {
@@ -119,6 +122,7 @@ func (u *UserDataStream) connect(listenKey string) error {
 		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
+	u.connected = false
 			return fmt.Errorf("read: %w", err)
 		}
 		u.handleMessage(msg)

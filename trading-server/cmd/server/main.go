@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/api"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
@@ -12,64 +17,71 @@ import (
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
 )
 
+var startTime = time.Now()
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		log.Fatalf("[init] config: %v", err)
 	}
 
-	// Initialize Binance client
 	client := binance.NewClient(cfg.APIKey, cfg.APISecret, cfg.BaseURL)
-	log.Printf("binance client initialized: %s", cfg.BaseURL)
+	log.Printf("[init] binance client: %s", cfg.BaseURL)
 
-	// Setup safe account defaults: one-way mode, cross margin, 1x leverage
+	// Account setup (non-fatal on mainnet where mode may already be set)
 	if err := client.SetPositionMode(false); err != nil {
-		log.Printf("warn: set position mode (one-way): %v", err)
+		log.Printf("[init] warn: position mode: %v", err)
 	}
 	for _, sym := range []string{"BTCUSDT", "ETHUSDT"} {
-		if err := client.SetMarginType(sym, "CROSSED"); err != nil {
-			log.Printf("warn: set margin type %s: %v", sym, err)
-		}
-		if err := client.SetLeverage(sym, 1); err != nil {
-			log.Printf("warn: set leverage %s: %v", sym, err)
-		}
+		client.SetMarginType(sym, "CROSSED")
+		client.SetLeverage(sym, 1)
 	}
-	log.Println("account setup complete: one-way, cross margin, 1x leverage")
+	log.Println("[init] account setup done")
 
-	// Initialize risk manager
 	riskMgr := risk.NewManager(risk.ManagerConfig{
 		MaxPositionPercent: cfg.MaxPositionPercent,
 		MaxStopLossPercent: cfg.MaxStopLossPercent,
 		DailyLossLimit:     cfg.DailyLossLimit,
 	})
 
-	// Initialize DuckDB store
 	st, err := store.New(cfg.DBPath)
 	if err != nil {
-		log.Fatalf("store: %v", err)
+		log.Fatalf("[init] store: %v", err)
 	}
 	defer st.Close()
-	log.Printf("database initialized: %s", cfg.DBPath)
+	log.Printf("[init] database: %s", cfg.DBPath)
 
-	// Initialize market data cache and WebSocket streams
 	cache := ws.NewMarketCache()
-
 	marketStream := ws.NewMarketStream(cfg.BaseURL, cache, []string{"BTCUSDT", "ETHUSDT"}, client)
 	marketStream.Start()
-	defer marketStream.Stop()
-
 	userStream := ws.NewUserDataStream(client, st, cache, cfg.BaseURL)
 	userStream.Start()
-	defer userStream.Stop()
+	log.Println("[init] ws streams: market + userdata")
 
-	log.Println("ws streams started: market + userdata")
+	router := api.NewRouter(client, cfg.APIToken, riskMgr, st, cache, startTime, marketStream, userStream)
 
-	// Setup HTTP router with cache
-	router := api.NewRouter(client, cfg.APIToken, riskMgr, st, cache)
+	srv := &http.Server{Addr: ":" + cfg.ServerPort, Handler: router}
 
-	addr := ":" + cfg.ServerPort
-	log.Printf("trading server starting on %s (env=%s)", addr, cfg.BaseURL)
-	if err := http.ListenAndServe(addr, router); err != nil {
-		log.Fatalf("server: %v", err)
-	}
+	// Graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Printf("[server] listening on :%s (%s)", cfg.ServerPort, cfg.BaseURL)
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatalf("[server] %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("[server] shutting down...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	marketStream.Stop()
+	userStream.Stop()
+	srv.Shutdown(shutdownCtx)
+	st.Close()
+	log.Println("[server] stopped")
 }

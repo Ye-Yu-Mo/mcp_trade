@@ -35,7 +35,7 @@ func planID(symbol, side, orderType string, quantity, price, stopPrice float64) 
 // HandlePlaceOrder handles POST /api/v1/order/place with Plan/Apply gate.
 func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		Error(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "use POST")
+		Error(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "use POST")
 		return
 	}
 
@@ -45,13 +45,13 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 	positionSide := r.FormValue("position_side")
 
 	if symbol == "" || side == "" || orderType == "" {
-		Error(w, http.StatusBadRequest, "MISSING_PARAM", "symbol, side, type are required")
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol, side, type are required")
 		return
 	}
 
 	qty, err := strconv.ParseFloat(r.FormValue("quantity"), 64)
 	if err != nil || qty <= 0 {
-		Error(w, http.StatusBadRequest, "INVALID_PARAM", "quantity must be a positive number")
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "quantity must be a positive number")
 		return
 	}
 
@@ -117,7 +117,7 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 	planIDParam := r.FormValue("plan_id")
 	expectedPID := planID(symbol, side, orderType, qty, price, stopPrice)
 	if planIDParam != expectedPID {
-		Error(w, http.StatusBadRequest, "PLAN_MISMATCH", "plan_id mismatch — order parameters changed since preview")
+		Error(w, http.StatusBadRequest, CodePlanMismatch, "plan_id mismatch — order parameters changed since preview")
 		return
 	}
 
@@ -144,7 +144,7 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 		Symbol: symbol, Quantity: roundedQty, Price: checkPrice,
 		StopPrice: stopPrice, Balance: usdtBalance, DailyPnL: dailyPnL,
 	}); err != nil {
-		code := "RISK_REJECTED"
+		code := CodeRiskRejected
 		if len(err.Error()) > 15 {
 			code = err.Error()[:15]
 		}
@@ -164,7 +164,7 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 
 	order, err := h.client.CreateOrder(req)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "ORDER_FAILED", err.Error())
+		Error(w, http.StatusInternalServerError, CodeOrderFailed, err.Error())
 		return
 	}
 
@@ -183,19 +183,19 @@ func (h *OrderHandler) HandleCancelOrder(w http.ResponseWriter, r *http.Request)
 	orderIDStr := r.URL.Query().Get("order_id")
 
 	if symbol == "" || orderIDStr == "" {
-		Error(w, http.StatusBadRequest, "MISSING_PARAM", "symbol and order_id are required")
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol and order_id are required")
 		return
 	}
 
 	orderID, err := strconv.ParseInt(orderIDStr, 10, 64)
 	if err != nil {
-		Error(w, http.StatusBadRequest, "INVALID_PARAM", "order_id must be a number")
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "order_id must be a number")
 		return
 	}
 
 	order, err := h.client.CancelOrder(symbol, orderID)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "CANCEL_FAILED", err.Error())
+		Error(w, http.StatusInternalServerError, CodeCancelFailed, err.Error())
 		return
 	}
 
@@ -208,7 +208,7 @@ func (h *OrderHandler) HandleListOrders(w http.ResponseWriter, r *http.Request) 
 
 	orders, err := h.client.GetOpenOrders(symbol)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "LIST_FAILED", err.Error())
+		Error(w, http.StatusInternalServerError, CodeListFailed, err.Error())
 		return
 	}
 
@@ -221,19 +221,19 @@ func (h *OrderHandler) HandleOrderStatus(w http.ResponseWriter, r *http.Request)
 	orderIDStr := r.URL.Query().Get("order_id")
 
 	if symbol == "" || orderIDStr == "" {
-		Error(w, http.StatusBadRequest, "MISSING_PARAM", "symbol and order_id are required")
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol and order_id are required")
 		return
 	}
 
 	orderID, err := strconv.ParseInt(orderIDStr, 10, 64)
 	if err != nil {
-		Error(w, http.StatusBadRequest, "INVALID_PARAM", "order_id must be a number")
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "order_id must be a number")
 		return
 	}
 
 	order, err := h.client.GetOrder(symbol, orderID)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "ORDER_NOT_FOUND", err.Error())
+		Error(w, http.StatusInternalServerError, CodeOrderNotFound, err.Error())
 		return
 	}
 

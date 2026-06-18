@@ -23,7 +23,7 @@ func NewMarketHandler(client binance.Trader) *MarketHandler {
 func (h *MarketHandler) HandleKlines(w http.ResponseWriter, r *http.Request) {
 	symbol := r.URL.Query().Get("symbol")
 	if symbol == "" {
-		Error(w, http.StatusBadRequest, "MISSING_PARAM", "symbol is required")
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol is required")
 		return
 	}
 
@@ -38,14 +38,14 @@ func (h *MarketHandler) HandleKlines(w http.ResponseWriter, r *http.Request) {
 		var err error
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil || limit <= 0 || limit > 1500 {
-			Error(w, http.StatusBadRequest, "INVALID_PARAM", "limit must be 1-1500")
+			Error(w, http.StatusBadRequest, CodeInvalidParam, "limit must be 1-1500")
 			return
 		}
 	}
 
 	klines, err := h.client.GetKlines(symbol, interval, limit)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "BINANCE_ERROR", err.Error())
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
 		return
 	}
 
@@ -56,7 +56,7 @@ func (h *MarketHandler) HandleKlines(w http.ResponseWriter, r *http.Request) {
 func (h *MarketHandler) HandleTicker(w http.ResponseWriter, r *http.Request) {
 	symbol := r.URL.Query().Get("symbol")
 	if symbol == "" {
-		Error(w, http.StatusBadRequest, "MISSING_PARAM", "symbol is required")
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol is required")
 		return
 	}
 
@@ -70,7 +70,7 @@ func (h *MarketHandler) HandleTicker(w http.ResponseWriter, r *http.Request) {
 
 	ticker, err := h.client.GetTicker(symbol)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "BINANCE_ERROR", err.Error())
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
 		return
 	}
 	JSON(w, http.StatusOK, ticker)
@@ -79,7 +79,7 @@ func (h *MarketHandler) HandleTicker(w http.ResponseWriter, r *http.Request) {
 // HandleWatch handles GET /api/v1/market/watch — returns all cached market data.
 func (h *MarketHandler) HandleWatch(w http.ResponseWriter, r *http.Request) {
 	if h.cache == nil {
-		Error(w, http.StatusInternalServerError, "NO_CACHE", "market cache not initialized")
+		Error(w, http.StatusInternalServerError, CodeNoCache, "market cache not initialized")
 		return
 	}
 	JSON(w, http.StatusOK, h.cache.Snapshot())
@@ -89,7 +89,7 @@ func (h *MarketHandler) HandleWatch(w http.ResponseWriter, r *http.Request) {
 func (h *MarketHandler) HandleOrderBook(w http.ResponseWriter, r *http.Request) {
 	symbol := r.URL.Query().Get("symbol")
 	if symbol == "" {
-		Error(w, http.StatusBadRequest, "MISSING_PARAM", "symbol is required")
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol is required")
 		return
 	}
 
@@ -99,14 +99,14 @@ func (h *MarketHandler) HandleOrderBook(w http.ResponseWriter, r *http.Request) 
 		var err error
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil || limit <= 0 || limit > 1000 {
-			Error(w, http.StatusBadRequest, "INVALID_PARAM", "limit must be 1-1000")
+			Error(w, http.StatusBadRequest, CodeInvalidParam, "limit must be 1-1000")
 			return
 		}
 	}
 
 	ob, err := h.client.GetOrderBook(symbol, limit)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "BINANCE_ERROR", err.Error())
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
 		return
 	}
 

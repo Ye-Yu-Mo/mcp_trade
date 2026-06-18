@@ -28,7 +28,7 @@ func (h *TradeHandler) HandleHistory(w http.ResponseWriter, r *http.Request) {
 
 	records, err := h.store.QueryTrades(symbol, limit)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error())
+		Error(w, http.StatusInternalServerError, CodeQueryFailed, err.Error())
 		return
 	}
 
@@ -45,7 +45,7 @@ func (h *TradeHandler) HandleJournal(w http.ResponseWriter, r *http.Request) {
 	tags := r.FormValue("tags")
 
 	if entryType == "" {
-		Error(w, http.StatusBadRequest, "MISSING_PARAM", "entry_type is required")
+		Error(w, http.StatusBadRequest, CodeMissingParam, "entry_type is required")
 		return
 	}
 
@@ -59,7 +59,7 @@ func (h *TradeHandler) HandleJournal(w http.ResponseWriter, r *http.Request) {
 
 	id, err := h.store.InsertJournal(entryType, reason, tags, tradeID)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "INSERT_FAILED", err.Error())
+		Error(w, http.StatusInternalServerError, CodeInsertFailed, err.Error())
 		return
 	}
 
@@ -70,7 +70,7 @@ func (h *TradeHandler) HandleJournal(w http.ResponseWriter, r *http.Request) {
 func (h *TradeHandler) HandlePerformance(w http.ResponseWriter, r *http.Request) {
 	perf, err := h.store.GetPerformance()
 	if err != nil {
-		Error(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error())
+		Error(w, http.StatusInternalServerError, CodeQueryFailed, err.Error())
 		return
 	}
 

@@ -20,16 +20,19 @@ type MarketClient interface {
 
 // MarketStream fetches real-time market data via WebSocket with REST fallback.
 type MarketStream struct {
-	baseURL string
-	cache   *MarketCache
-	symbols []string
-	client  MarketClient
-	done    chan struct{}
+	baseURL   string
+	cache     *MarketCache
+	symbols   []string
+	client    MarketClient
+	connected bool
+	done      chan struct{}
 }
 
 func NewMarketStream(baseURL string, cache *MarketCache, symbols []string, client MarketClient) *MarketStream {
 	return &MarketStream{baseURL: baseURL, cache: cache, symbols: symbols, client: client, done: make(chan struct{})}
 }
+
+func (m *MarketStream) Connected() bool { return m.connected }
 
 func (m *MarketStream) Start() {
 	go m.runWS()
@@ -62,10 +65,12 @@ func (m *MarketStream) runWS() {
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
 			log.Printf("ws market: cannot connect (%v), using REST polling", err)
+			m.connected = false
 			return // fall back to REST
 		}
 
 		log.Printf("ws market: connected to %s", wsHost)
+		m.connected = true
 		backoff = 1 * time.Second
 
 		for {
@@ -79,6 +84,7 @@ func (m *MarketStream) runWS() {
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
 				log.Printf("ws market: read: %v, reconnecting", err)
+				m.connected = false
 				conn.Close()
 				break
 			}
