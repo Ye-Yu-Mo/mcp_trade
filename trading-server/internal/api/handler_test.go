@@ -52,6 +52,40 @@ func (m *mockTrader) GetFundingRate(symbol string) (float64, int64, error) {
 func (m *mockTrader) GetOpenInterest(symbol string) (float64, error) {
 	return 0, m.err
 }
+
+func TestHandleScanner(t *testing.T) {
+	mock := &mockTrader{}
+	m := NewMarketHandler(mock)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/market/scanner?limit=5", nil)
+	rec := httptest.NewRecorder()
+	m.HandleScanner(rec, req)
+	// Expect no error (empty results because mock returns nil)
+	if rec.Code != http.StatusOK {
+		t.Errorf("scanner status = %d, want 200", rec.Code)
+	}
+}
+
+func TestHandleFunding(t *testing.T) {
+	mock := &mockTrader{}
+	m := NewMarketHandler(mock)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/market/funding?symbol=BTCUSDT", nil)
+	rec := httptest.NewRecorder()
+	m.HandleFunding(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("funding status = %d, want 200", rec.Code)
+	}
+}
+
+func TestHandleOI(t *testing.T) {
+	mock := &mockTrader{}
+	m := NewMarketHandler(mock)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/market/oi?symbol=BTCUSDT", nil)
+	rec := httptest.NewRecorder()
+	m.HandleOI(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("OI status = %d, want 200", rec.Code)
+	}
+}
 func (m *mockTrader) GetBalance() ([]binance.Balance, error) {
 	return m.balances, m.err
 }
