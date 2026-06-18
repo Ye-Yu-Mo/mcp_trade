@@ -106,3 +106,12 @@ export interface PerformanceStats {
   max_loss: number;
   profit_factor: number;
 }
+
+export interface JournalEntry {
+  ID: number;
+  TradeID: number | null;
+  EntryType: string;
+  Reason: string;
+  Tags: string;
+  CreatedAt: string;
+}

@@ -74,6 +74,7 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 		r.Route("/trade", func(r chi.Router) {
 			r.Get("/history", trade.HandleHistory)
 			r.Post("/journal", trade.HandleJournal)
+			r.Get("/journal", trade.HandleJournalList)
 			r.Get("/performance", trade.HandlePerformance)
 		})
 	})

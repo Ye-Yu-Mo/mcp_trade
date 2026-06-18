@@ -1,4 +1,4 @@
-import type { Kline, Ticker, OrderBook, Balance, Position, Order, OrderPreview, TradeRecord, PerformanceStats } from "./types.js";
+import type { Kline, Ticker, OrderBook, Balance, Position, Order, OrderPreview, TradeRecord, PerformanceStats, JournalEntry } from "./types.js";
 
 export class TradingClient {
   constructor(
@@ -146,6 +146,10 @@ export class TradingClient {
     if (tags) form.set("tags", tags);
     if (tradeId) form.set("trade_id", String(tradeId));
     return this.post<{ id: number }>("/api/v1/trade/journal", form);
+  }
+
+  async getJournals(limit = 20): Promise<JournalEntry[]> {
+    return this.get<JournalEntry[]>(`/api/v1/trade/journal?limit=${limit}`);
   }
 
   async getPerformance(): Promise<PerformanceStats> {

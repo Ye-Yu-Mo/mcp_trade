@@ -76,3 +76,21 @@ func (h *TradeHandler) HandlePerformance(w http.ResponseWriter, r *http.Request)
 
 	JSON(w, http.StatusOK, perf)
 }
+
+// HandleJournalList handles GET /api/v1/trade/journal
+func (h *TradeHandler) HandleJournalList(w http.ResponseWriter, r *http.Request) {
+	limitStr := r.URL.Query().Get("limit")
+	limit := 20
+	if limitStr != "" {
+		limit, _ = strconv.Atoi(limitStr)
+	}
+	entries, err := h.store.QueryJournals(limit)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, CodeQueryFailed, err.Error())
+		return
+	}
+	if entries == nil {
+		entries = []store.JournalEntry{}
+	}
+	JSON(w, http.StatusOK, entries)
+}

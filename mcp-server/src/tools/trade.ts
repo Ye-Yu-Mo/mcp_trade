@@ -56,6 +56,37 @@ export function registerTradeTools(server: any, client: TradingClient) {
     },
   );
 
+  // --- trade.journal_list ---
+  server.registerTool(
+    "trade.journal_list",
+    {
+      description:
+        "查询历史交易日志/经验记录。返回之前写下的入场理由、出场理由、复盘总结。每次交易会话开始时必须调用此工具，回顾过去的经验教训，避免重复犯错。",
+      inputSchema: {
+        limit: z.number().default(20).describe("返回数量，默认20"),
+      },
+    },
+    async (args: { limit?: number }) => {
+      const entries = await client.getJournals(args.limit ?? 20);
+      if (entries.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No journal entries yet." }],
+          structuredContent: { entries: [] },
+        };
+      }
+      const header = "| ID | Type | Tags | Reason | Time |";
+      const sep = "|---|---|---|---|---|";
+      const rows = entries.map((e) => {
+        const reason = e.Reason.length > 80 ? e.Reason.slice(0, 80) + "..." : e.Reason;
+        return `| ${e.ID} | ${e.EntryType} | ${e.Tags || "-"} | ${reason} | ${e.CreatedAt.slice(0, 19)} |`;
+      });
+      return {
+        content: [{ type: "text" as const, text: [header, sep, ...rows].join("\n") }],
+        structuredContent: { entries },
+      };
+    },
+  );
+
   // --- trade.performance ---
   server.registerTool(
     "trade.performance",
