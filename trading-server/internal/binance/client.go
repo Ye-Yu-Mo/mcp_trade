@@ -380,18 +380,25 @@ func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
 	params.Set("type", req.OrderType)
 	params.Set("quantity", strconv.FormatFloat(req.Quantity, 'f', -1, 64))
 
+	// STOP_MARKET and TAKE_PROFIT_MARKET use Algo Order endpoint
+	isAlgo := req.OrderType == "STOP_MARKET" || req.OrderType == "TAKE_PROFIT_MARKET"
+	path := "/fapi/v1/order"
+	if isAlgo {
+		path = "/fapi/v1/algo/order"
+	}
+
 	if req.OrderType == "LIMIT" {
 		params.Set("timeInForce", "GTC")
 		params.Set("price", strconv.FormatFloat(req.Price, 'f', -1, 64))
 	}
-	if req.OrderType == "STOP_MARKET" {
+	if isAlgo {
 		params.Set("stopPrice", strconv.FormatFloat(req.StopPrice, 'f', -1, 64))
-	}
-	if req.ReduceOnly {
+		params.Set("reduceOnly", strconv.FormatBool(req.ReduceOnly))
+	} else if req.ReduceOnly {
 		params.Set("reduceOnly", "true")
 	}
 
-	body, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/order", params, true)
+	body, err := c.request(context.Background(), http.MethodPost, path, params, true)
 	if err != nil {
 		return nil, err
 	}

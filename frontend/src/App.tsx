@@ -8,6 +8,8 @@ import { PnLChart } from "./components/PnLChart";
 import { RiskPanel } from "./components/RiskPanel";
 import { ConfigForm } from "./components/ConfigForm";
 import type { Balance, Position, Order, TradeRecord, PerformanceStats } from "./api/types";
+import type { Alert } from "./components/Alerts";
+import { Alerts } from "./components/Alerts";
 
 export default function App() {
   const [connected, setConnected] = useState(api.configured);
@@ -16,16 +18,18 @@ export default function App() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [perf, setPerf] = useState<PerformanceStats | null>(null);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
 
   const fetch = useCallback(async () => {
-    const [b, p, o, t, pf] = await Promise.all([
-      api.balance(), api.positions(), api.openOrders(), api.tradeHistory(), api.performance()
+    const [b, p, o, t, pf, a] = await Promise.all([
+      api.balance(), api.positions(), api.openOrders(), api.tradeHistory(), api.performance(), api.getAlerts()
     ]);
     if (b) setBalances(b);
     if (p) setPositions(p);
     if (o) setOrders(o);
     if (t) setTrades(t);
     if (pf) setPerf(pf);
+    if (a) setAlerts(a);
   }, []);
 
   usePolling(fetch, 5000);
@@ -69,6 +73,7 @@ export default function App() {
           </div>
           <div className="space-y-6">
             <PnLChart trades={trades} />
+            <Alerts alerts={alerts} />
             <RiskPanel positions={positions} balance={usdt} dailyPnL={perf?.total_pnl ?? 0} />
           </div>
         </div>
