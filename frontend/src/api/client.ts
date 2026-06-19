@@ -35,6 +35,7 @@ export class ApiClient {
   openOrders() { return this.get<Order[]>("/api/v1/order/list"); }
   tradeHistory(limit = 50) { return this.get<TradeRecord[]>(`/api/v1/trade/history?limit=${limit}`); }
   performance() { return this.get<PerformanceStats>("/api/v1/trade/performance"); }
+  alerts() { return this.get<any[]>("/api/v1/market/alerts"); }
 }
 
 export const api = new ApiClient();

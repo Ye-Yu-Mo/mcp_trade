@@ -380,18 +380,24 @@ func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
 	params.Set("type", req.OrderType)
 	params.Set("quantity", strconv.FormatFloat(req.Quantity, 'f', -1, 64))
 
-	// STOP_MARKET and TAKE_PROFIT_MARKET use Algo Order endpoint
-	isAlgo := req.OrderType == "STOP_MARKET" || req.OrderType == "TAKE_PROFIT_MARKET"
+	// STOP_MARKET and TAKE_PROFIT_MARKET use Algo endpoint on mainnet; testnet unsupported
+	isConditional := req.OrderType == "STOP_MARKET" || req.OrderType == "TAKE_PROFIT_MARKET" || req.OrderType == "STOP"
+	isTestnet := strings.Contains(c.baseURL, "testnet")
+
+	if isConditional && isTestnet {
+		return nil, fmt.Errorf("条件单(%s)在testnet不可用，请改用 LIMIT/MARKET + reduce_only=true 或设 market.alerts 提醒", req.OrderType)
+	}
+
 	path := "/fapi/v1/order"
-	if isAlgo {
+	if isConditional && !isTestnet {
 		path = "/fapi/v1/algo/order"
 	}
 
-	if req.OrderType == "LIMIT" {
+	if req.OrderType == "LIMIT" || req.OrderType == "STOP" {
 		params.Set("timeInForce", "GTC")
 		params.Set("price", strconv.FormatFloat(req.Price, 'f', -1, 64))
 	}
-	if isAlgo {
+	if isConditional {
 		params.Set("stopPrice", strconv.FormatFloat(req.StopPrice, 'f', -1, 64))
 		params.Set("reduceOnly", strconv.FormatBool(req.ReduceOnly))
 	} else if req.ReduceOnly {

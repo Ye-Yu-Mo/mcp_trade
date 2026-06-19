@@ -251,6 +251,58 @@ func (s *Store) GetPerformance() (*Performance, error) {
 	return p, nil
 }
 
+// --- Alert persistence ---
+
+// InsertAlert creates a new alert in the database.
+func (s *Store) InsertAlert(id, symbol, direction, message string, price float64) error {
+	_, err := s.db.Exec(
+		`INSERT INTO alerts (id, symbol, price, direction, message) VALUES (?, ?, ?, ?, ?)`,
+		id, symbol, price, direction, message,
+	)
+	return err
+}
+
+// QueryAlerts returns all alerts, most recent first.
+func (s *Store) QueryAlerts() ([]Alert, error) {
+	rows, err := s.db.Query(`SELECT id, symbol, price, direction, message, triggered, created_at FROM alerts ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var alerts []Alert
+	for rows.Next() {
+		var a Alert
+		if err := rows.Scan(&a.ID, &a.Symbol, &a.Price, &a.Direction, &a.Message, &a.Triggered, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		alerts = append(alerts, a)
+	}
+	return alerts, nil
+}
+
+// UpdateAlertTriggered marks an alert as triggered.
+func (s *Store) UpdateAlertTriggered(id string) error {
+	_, err := s.db.Exec(`UPDATE alerts SET triggered=TRUE WHERE id=?`, id)
+	return err
+}
+
+// DeleteAlert removes an alert by ID.
+func (s *Store) DeleteAlert(id string) error {
+	_, err := s.db.Exec(`DELETE FROM alerts WHERE id=?`, id)
+	return err
+}
+
+// Alert is a persisted price alert.
+type Alert struct {
+	ID        string    `json:"id"`
+	Symbol    string    `json:"symbol"`
+	Price     float64   `json:"price"`
+	Direction string    `json:"direction"`
+	Message   string    `json:"message"`
+	Triggered bool      `json:"triggered"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 const schema = `
 CREATE SEQUENCE IF NOT EXISTS seq_trade_id;
 
@@ -281,5 +333,15 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     screenshot_url   TEXT NOT NULL DEFAULT '',
     market_snapshot  TEXT NOT NULL DEFAULT '{}',
     created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id          TEXT PRIMARY KEY,
+    symbol      TEXT NOT NULL,
+    price       DOUBLE NOT NULL,
+    direction   TEXT NOT NULL,
+    message     TEXT NOT NULL DEFAULT '',
+    triggered   BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 `

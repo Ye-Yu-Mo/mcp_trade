@@ -8,7 +8,7 @@ import (
 func TestAlertStore_AddAndList(t *testing.T) {
 	cache := NewMarketCache()
 	cache.SetPrice("BTCUSDT", 64000)
-	store := NewAlertStore(cache)
+	store := NewAlertStore(cache, nil)
 
 	id := store.Add("BTCUSDT", 65000, "ABOVE", "test alert")
 	if id == "" {
@@ -27,7 +27,7 @@ func TestAlertStore_AddAndList(t *testing.T) {
 func TestAlertStore_Trigger(t *testing.T) {
 	cache := NewMarketCache()
 	cache.SetPrice("BTCUSDT", 64000)
-	store := NewAlertStore(cache)
+	store := NewAlertStore(cache, nil)
 
 	store.Add("BTCUSDT", 63500, "BELOW", "should trigger when price drops")
 
@@ -46,7 +46,7 @@ func TestAlertStore_Trigger(t *testing.T) {
 
 func TestAlertStore_Remove(t *testing.T) {
 	cache := NewMarketCache()
-	store := NewAlertStore(cache)
+	store := NewAlertStore(cache, nil)
 	id := store.Add("ETHUSDT", 2000, "ABOVE", "remove me")
 
 	if !store.Remove(id) {

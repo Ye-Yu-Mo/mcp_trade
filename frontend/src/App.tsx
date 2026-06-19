@@ -22,7 +22,7 @@ export default function App() {
 
   const fetch = useCallback(async () => {
     const [b, p, o, t, pf, a] = await Promise.all([
-      api.balance(), api.positions(), api.openOrders(), api.tradeHistory(), api.performance(), api.getAlerts()
+      api.balance(), api.positions(), api.openOrders(), api.tradeHistory(), api.performance(), api.alerts()
     ]);
     if (b) setBalances(b);
     if (p) setPositions(p);
