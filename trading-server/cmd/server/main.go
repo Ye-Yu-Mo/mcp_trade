@@ -52,7 +52,7 @@ func main() {
 	log.Printf("[init] database: %s", cfg.DBPath)
 
 	cache := ws.NewMarketCache()
-	alertStore := ws.NewAlertStore(cache, st)
+	alertStore := ws.NewAlertStore(cache, st, client)
 	marketStream := ws.NewMarketStream(cfg.BaseURL, cache, []string{"BTCUSDT", "ETHUSDT"}, client)
 	marketStream.Start()
 	userStream := ws.NewUserDataStream(client, st, cache, cfg.BaseURL)

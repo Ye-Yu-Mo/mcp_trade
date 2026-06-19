@@ -4,10 +4,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/store"
 )
 
-// PriceAlert represents a user-set price alert.
 type PriceAlert struct {
 	ID        string    `json:"id"`
 	Symbol    string    `json:"symbol"`
@@ -18,7 +18,6 @@ type PriceAlert struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// AlertPersister abstracts alert persistence.
 type AlertPersister interface {
 	InsertAlert(id, symbol, direction, message string, price float64) error
 	QueryAlerts() ([]store.Alert, error)
@@ -26,20 +25,21 @@ type AlertPersister interface {
 	DeleteAlert(id string) error
 }
 
-// AlertStore manages price alerts with auto-trigger and DB persistence.
 type AlertStore struct {
 	mu      sync.RWMutex
 	alerts  map[string]*PriceAlert
 	cache   *MarketCache
 	store   AlertPersister
+	trader  binance.Trader
 	counter int
 }
 
-func NewAlertStore(cache *MarketCache, store AlertPersister) *AlertStore {
+func NewAlertStore(cache *MarketCache, store AlertPersister, trader binance.Trader) *AlertStore {
 	a := &AlertStore{
-		alerts:  make(map[string]*PriceAlert),
-		cache:   cache,
-		store:   store,
+		alerts: make(map[string]*PriceAlert),
+		cache:  cache,
+		store:  store,
+		trader: trader,
 	}
 	if a.store != nil {
 		if records, err := a.store.QueryAlerts(); err == nil {
@@ -62,8 +62,7 @@ func (a *AlertStore) Add(symbol string, price float64, direction string, message
 	defer a.mu.Unlock()
 	a.counter++
 	id := generateID(a.counter)
-	alert := &PriceAlert{ID: id, Symbol: symbol, Price: price, Direction: direction, Message: message, CreatedAt: time.Now()}
-	a.alerts[id] = alert
+	a.alerts[id] = &PriceAlert{ID: id, Symbol: symbol, Price: price, Direction: direction, Message: message, CreatedAt: time.Now()}
 	if a.store != nil {
 		a.store.InsertAlert(id, symbol, direction, message, price)
 	}
@@ -114,7 +113,14 @@ func (a *AlertStore) checkLoop() {
 			if alert.Triggered {
 				continue
 			}
+			// Cache first, REST fallback for symbols not in watch list
 			price, ok := a.cache.GetPrice(alert.Symbol)
+			if !ok && a.trader != nil {
+				if tk, err := a.trader.GetTicker(alert.Symbol); err == nil {
+					price = tk.Price
+					ok = true
+				}
+			}
 			if !ok {
 				continue
 			}
