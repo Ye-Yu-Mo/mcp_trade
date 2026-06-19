@@ -17,6 +17,8 @@ type Trader interface {
 	GetOpenInterest(symbol string) (float64, error)
 	CreateOCOOrder(symbol, side string, quantity, price, stopPrice float64) (*OCOOrder, error)
 	CancelOCOOrder(symbol string, orderListID int64) error
+	GetATR(symbol, interval string, period int) (float64, error)
+	GetCandleInfo(symbol, interval string) (*CandleInfo, error)
 }
 
 // Compile-time check: Client implements Trader.

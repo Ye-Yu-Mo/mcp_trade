@@ -679,3 +679,66 @@ func (c *Client) CancelOCOOrder(symbol string, orderListID int64) error {
 	_, err := c.request(context.Background(), http.MethodDelete, "/fapi/v1/orderList", params, true)
 	return err
 }
+
+// --- ATR (Average True Range) & Volatility ---
+
+// GetATR calculates the Average True Range over a given period.
+func (c *Client) GetATR(symbol, interval string, period int) (float64, error) {
+	if period <= 0 {
+		period = 14
+	}
+	// Need period+1 klines to calculate ATR for `period` candles
+	klines, err := c.GetKlines(symbol, interval, period+1)
+	if err != nil {
+		return 0, err
+	}
+	if len(klines) < 2 {
+		return 0, fmt.Errorf("not enough klines for ATR")
+	}
+
+	var sum float64
+	for i := 1; i < len(klines); i++ {
+		high := klines[i].High
+		low := klines[i].Low
+		prevClose := klines[i-1].Close
+		tr := high - low
+		if hc := high - prevClose; hc > tr {
+			tr = hc
+		}
+		if lc := prevClose - low; lc > tr {
+			tr = lc
+		}
+		sum += tr
+	}
+	return sum / float64(len(klines)-1), nil
+}
+
+// --- Candle Info ---
+
+// CandleInfo holds current candle timing info.
+type CandleInfo struct {
+	Symbol       string `json:"symbol"`
+	Interval     string `json:"interval"`
+	OpenTime     int64  `json:"open_time"`
+	CloseTime    int64  `json:"close_time"`
+	RemainingSec int64  `json:"remaining_sec"`
+}
+
+// GetCandleInfo returns timing info for the current candle.
+func (c *Client) GetCandleInfo(symbol, interval string) (*CandleInfo, error) {
+	klines, err := c.GetKlines(symbol, interval, 1)
+	if err != nil || len(klines) == 0 {
+		return nil, err
+	}
+	k := klines[0]
+	now := time.Now().UnixMilli()
+	remaining := (k.CloseTime - now) / 1000
+	if remaining < 0 {
+		remaining = 0
+	}
+	return &CandleInfo{
+		Symbol: symbol, Interval: interval,
+		OpenTime: k.OpenTime, CloseTime: k.CloseTime,
+		RemainingSec: remaining,
+	}, nil
+}

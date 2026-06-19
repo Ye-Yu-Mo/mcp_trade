@@ -196,6 +196,14 @@ export class TradingClient {
     return this.get<any>(`/api/v1/market/oi?symbol=${symbol}`);
   }
 
+  async getATR(symbol: string, interval = "1h", period = 14): Promise<any> {
+    return this.get<any>(`/api/v1/market/atr?symbol=${symbol}&interval=${interval}&period=${period}`);
+  }
+
+  async getCandleInfo(symbol: string, interval = "1h"): Promise<any> {
+    return this.get<any>(`/api/v1/market/candle_info?symbol=${symbol}&interval=${interval}`);
+  }
+
   async modifyStop(params: {
     symbol: string;
     oldOrderId: number;

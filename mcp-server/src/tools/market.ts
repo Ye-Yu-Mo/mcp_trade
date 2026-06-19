@@ -265,6 +265,48 @@ export function registerMarketTools(server: any, client: TradingClient) {
     },
   );
 
+  // --- market.atr ---
+  server.registerTool(
+    "market.atr",
+    {
+      description:
+        "计算平均真实波幅（ATR），用于衡量波动率。ATR值越大=波动越大，止损应放得更宽。返回绝对ATR值和相对价格百分比。设止损时参考：止损距离≥1.5x ATR。",
+      inputSchema: {
+        symbol: z.string().describe("交易对，如 BTCUSDT"),
+        interval: z.string().default("1h").describe("K线周期，默认 1h"),
+        period: z.number().default(14).describe("ATR周期，默认 14"),
+      },
+    },
+    async (args: { symbol: string; interval?: string; period?: number }) => {
+      const atr = await client.getATR(args.symbol, args.interval ?? "1h", args.period ?? 14);
+      return {
+        content: [{ type: "text" as const, text: `${args.symbol} ATR(${args.period ?? 14},${args.interval ?? "1h"}): ${atr.atr.toFixed(4)} (${atr.atr_pct.toFixed(4)}% of price)` }],
+        structuredContent: atr,
+      };
+    },
+  );
+
+  // --- market.candle_info ---
+  server.registerTool(
+    "market.candle_info",
+    {
+      description:
+        "获取当前K线的开盘时间和剩余时间。用于判断蜡烛何时收盘——影响入场时机（如等4h线收盘确认信号）。返回当前蜡烛开盘时间+剩余秒数。",
+      inputSchema: {
+        symbol: z.string().describe("交易对，如 BTCUSDT"),
+        interval: z.string().default("4h").describe("K线周期，默认 4h"),
+      },
+    },
+    async (args: { symbol: string; interval?: string }) => {
+      const info = await client.getCandleInfo(args.symbol, args.interval ?? "4h");
+      const min = Math.floor((info.remaining_sec || 0) / 60);
+      return {
+        content: [{ type: "text" as const, text: `${info.symbol} ${info.interval} 蜡烛: 剩余 ${min}分${(info.remaining_sec||0) % 60}秒收盘` }],
+        structuredContent: info,
+      };
+    },
+  );
+
   // --- market.calendar ---
   server.registerTool(
     "market.calendar",

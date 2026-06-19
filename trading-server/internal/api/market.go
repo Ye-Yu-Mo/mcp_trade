@@ -22,7 +22,9 @@ func NewMarketHandler(client binance.Trader) *MarketHandler {
 	return &MarketHandler{client: client}
 }
 
-// HandleKlines handles GET /api/v1/market/klines — supports comma-separated symbols.
+// HandleKlines handles GET /api/v1/market/klines — supports comma-separated symbols and intervals.
+// Single symbol + single interval: returns []Kline
+// Multi symbol or multi interval: returns map[string]...{}
 func (h *MarketHandler) HandleKlines(w http.ResponseWriter, r *http.Request) {
 	symbol := r.URL.Query().Get("symbol")
 	if symbol == "" {
@@ -47,8 +49,13 @@ func (h *MarketHandler) HandleKlines(w http.ResponseWriter, r *http.Request) {
 	}
 
 	symbols := strings.Split(symbol, ",")
-	if len(symbols) == 1 {
-		klines, err := h.client.GetKlines(symbols[0], interval, limit)
+	intervals := strings.Split(interval, ",")
+	multiSym := len(symbols) > 1
+	multiInt := len(intervals) > 1
+
+	// Simple case: one symbol, one interval
+	if !multiSym && !multiInt {
+		klines, err := h.client.GetKlines(symbols[0], intervals[0], limit)
 		if err != nil {
 			Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
 			return
@@ -57,18 +64,26 @@ func (h *MarketHandler) HandleKlines(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := make(map[string][]binance.Kline)
+	// Multi-dimensional result: symbol → interval → klines
+	result := make(map[string]map[string][]binance.Kline)
 	for _, sym := range symbols {
 		sym = strings.TrimSpace(sym)
 		if sym == "" {
 			continue
 		}
-		klines, err := h.client.GetKlines(sym, interval, limit)
-		if err != nil {
-			Error(w, http.StatusInternalServerError, CodeBinanceError, fmt.Sprintf("%s: %v", sym, err))
-			return
+		result[sym] = make(map[string][]binance.Kline)
+		for _, iv := range intervals {
+			iv = strings.TrimSpace(iv)
+			if iv == "" {
+				continue
+			}
+			klines, err := h.client.GetKlines(sym, iv, limit)
+			if err != nil {
+				Error(w, http.StatusInternalServerError, CodeBinanceError, fmt.Sprintf("%s/%s: %v", sym, iv, err))
+				return
+			}
+			result[sym][iv] = klines
 		}
-		result[sym] = klines
 	}
 	JSON(w, http.StatusOK, result)
 }
@@ -252,4 +267,53 @@ func (h *MarketHandler) HandleOI(w http.ResponseWriter, r *http.Request) {
 		"symbol":        symbol,
 		"open_interest": oi,
 	})
+}
+
+// HandleATR handles GET /api/v1/market/atr — returns Average True Range.
+func (h *MarketHandler) HandleATR(w http.ResponseWriter, r *http.Request) {
+	symbol := r.URL.Query().Get("symbol")
+	if symbol == "" {
+		symbol = "BTCUSDT"
+	}
+	interval := r.URL.Query().Get("interval")
+	if interval == "" {
+		interval = "1h"
+	}
+	periodStr := r.URL.Query().Get("period")
+	period := 14
+	if periodStr != "" {
+		period, _ = strconv.Atoi(periodStr)
+	}
+	atr, err := h.client.GetATR(symbol, interval, period)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
+		return
+	}
+	price, _ := h.client.GetTicker(symbol)
+	pct := 0.0
+	if price != nil {
+		pct = (atr / price.Price) * 100
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"symbol": symbol, "interval": interval, "period": period,
+		"atr": atr, "atr_pct": pct,
+	})
+}
+
+// HandleCandleInfo handles GET /api/v1/market/candle_info — current candle timing.
+func (h *MarketHandler) HandleCandleInfo(w http.ResponseWriter, r *http.Request) {
+	symbol := r.URL.Query().Get("symbol")
+	if symbol == "" {
+		symbol = "BTCUSDT"
+	}
+	interval := r.URL.Query().Get("interval")
+	if interval == "" {
+		interval = "1h"
+	}
+	info, err := h.client.GetCandleInfo(symbol, interval)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, info)
 }

@@ -348,3 +348,5 @@ func TestHandlePositions_Empty(t *testing.T) {
 }
 func (m *mockTrader) CreateOCOOrder(symbol, side string, quantity, price, stopPrice float64) (*binance.OCOOrder, error) { return nil, m.err }
 func (m *mockTrader) CancelOCOOrder(symbol string, orderListID int64) error { return m.err }
+func (m *mockTrader) GetATR(symbol, interval string, period int) (float64, error) { return 0, m.err }
+func (m *mockTrader) GetCandleInfo(symbol, interval string) (*binance.CandleInfo, error) { return nil, m.err }

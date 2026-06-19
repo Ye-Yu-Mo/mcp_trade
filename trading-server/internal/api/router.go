@@ -60,6 +60,8 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 			r.Get("/scanner", market.HandleScanner)
 			r.Get("/funding", market.HandleFunding)
 			r.Get("/oi", market.HandleOI)
+			r.Get("/atr", market.HandleATR)
+			r.Get("/candle_info", market.HandleCandleInfo)
 			r.Get("/calendar", market.HandleCalendar)
 			r.Post("/alert", market.HandleSetAlert)
 			r.Get("/alerts", market.HandleListAlerts)
