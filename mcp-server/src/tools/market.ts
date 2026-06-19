@@ -45,10 +45,29 @@ export function registerMarketTools(server: any, client: TradingClient) {
       },
     },
     async (args: { symbol: string; interval?: string; limit?: number }) => {
-      const klines = await client.getKlines(args.symbol, args.interval ?? "1h", args.limit ?? 100);
+      const result = await client.getKlines(args.symbol, args.interval ?? "1h", args.limit ?? 100);
+      // Handle multi-interval response (nested map) vs single interval (flat array)
+      if (Array.isArray(result)) {
+        return {
+          content: [{ type: "text" as const, text: formatKlines(result) }],
+          structuredContent: { klines: result },
+        };
+      }
+      // Nested: { "BTCUSDT": { "1h": [...], "4h": [...] } }
+      const lines: string[] = [];
+      for (const [sym, intervals] of Object.entries(result)) {
+        lines.push(`## ${sym}`);
+        for (const [iv, klines] of Object.entries(intervals as any)) {
+          lines.push(`### ${iv} (${(klines as any[]).length} candles)`);
+          if ((klines as any[]).length > 0) {
+            const last = (klines as any[])[(klines as any[]).length - 1];
+            lines.push(`O:${last.Open} H:${last.High} L:${last.Low} C:${last.Close}`);
+          }
+        }
+      }
       return {
-        content: [{ type: "text" as const, text: formatKlines(klines) }],
-        structuredContent: { klines },
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+        structuredContent: result,
       };
     },
   );
