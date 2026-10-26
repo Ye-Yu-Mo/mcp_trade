@@ -1,3 +1,5 @@
+import { fmtPrice, fmtTime } from "../lib/format";
+
 export interface Alert {
   id: string;
   symbol: string;
@@ -9,56 +11,94 @@ export interface Alert {
 }
 
 export function Alerts({ alerts }: { alerts: Alert[] }) {
-  const active = alerts.filter(a => !a.triggered);
-  const triggered = alerts.filter(a => a.triggered);
+  const sorted = alerts.slice().sort((a, b) => {
+    if (a.triggered !== b.triggered) return a.triggered ? -1 : 1;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+  const active = alerts.filter((a) => !a.triggered).length;
+  const triggered = alerts.length - active;
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md border border-slate-700/50 rounded-2xl overflow-hidden shadow-xl">
-      <div className="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between bg-slate-800/20">
-        <h3 className="text-sm font-medium text-slate-200">价格提醒</h3>
-        <div className="flex gap-2">
-          {triggered.length > 0 && (
-            <span className="px-2 py-0.5 rounded text-xs font-medium border bg-rose-500/10 text-rose-400 border-rose-500/20">
-              🔔 {triggered.length} 已触发
-            </span>
-          )}
-          <span className="px-2 py-0.5 rounded text-xs font-medium border bg-blue-500/10 text-blue-400 border-blue-500/20">
-            {active.length} 活跃
-          </span>
+    <section className="panel overflow-hidden">
+      <div className="panel-head">
+        <div>
+          <div className="panel-title">价格提醒</div>
+          <div className="panel-sub mt-0.5">由服务端实时比较缓存价格</div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {triggered > 0 && <span className="chip chip-bad">🔔 {triggered}</span>}
+          <span className="chip">{active} 活跃</span>
         </div>
       </div>
-      <div className="p-4 overflow-auto custom-scrollbar max-h-[280px]">
+
+      <div className="custom-scrollbar max-h-[286px] overflow-auto p-3">
         {alerts.length === 0 ? (
-          <div className="text-slate-500 text-sm text-center py-6">暂无提醒</div>
+          <div className="empty">
+            <svg
+              viewBox="0 0 24 24"
+              className="h-6 w-6 text-[var(--ink-3)]"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+            </svg>
+            <div className="text-[var(--ink-2)]">暂无提醒</div>
+            <div className="text-[11px] text-[var(--ink-3)]">等待关键价位触发</div>
+          </div>
         ) : (
           <div className="space-y-2">
-            {triggered.map(a => (
-              <div key={a.id} className="flex items-center justify-between p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20">
-                <div className="flex items-center gap-3">
-                  <span className="text-lg">🔔</span>
-                  <div>
-                    <div className="text-sm font-medium text-slate-200">{a.symbol} {a.direction} ${a.price}</div>
-                    <div className="text-xs text-rose-400">{a.message || "已触发"}</div>
+            {sorted.map((a) => (
+              <div
+                key={a.id}
+                className={`flex items-start justify-between gap-3 rounded-xl border px-3 py-2.5 ${
+                  a.triggered
+                    ? "border-[rgba(208,59,59,0.28)] bg-[rgba(208,59,59,0.08)]"
+                    : "border-[var(--line)] bg-[rgba(148,163,184,0.035)]"
+                }`}
+              >
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span
+                    className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                      a.triggered ? "bg-[#d03b3b]" : "bg-[var(--accent)]"
+                    }`}
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-[13px] font-medium text-[var(--ink)]">
+                        {a.symbol}
+                      </span>
+                      <span className="num text-[12px] text-[var(--ink-2)]">
+                        {a.direction === "ABOVE" ? "≥" : "≤"} ${fmtPrice(Number(a.price))}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-[var(--ink-3)]">
+                      {a.message || (a.triggered ? "已触发" : "等待中")}
+                    </div>
                   </div>
                 </div>
-                <span className="text-xs text-rose-400 font-mono">触发</span>
-              </div>
-            ))}
-            {active.map(a => (
-              <div key={a.id} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-800/30 border border-slate-700/30">
-                <div className="flex items-center gap-3">
-                  <span className="text-lg">⏳</span>
-                  <div>
-                    <div className="text-sm font-medium text-slate-300">{a.symbol} {a.direction} ${a.price}</div>
-                    <div className="text-xs text-slate-500">{a.message || "等待中"}</div>
+                <div className="shrink-0 text-right">
+                  <div
+                    className={`text-[10px] font-medium ${
+                      a.triggered ? "text-[#ff9b9b]" : "text-[var(--ink-3)]"
+                    }`}
+                  >
+                    {a.triggered ? "已触发" : "监听中"}
+                  </div>
+                  <div className="num mt-0.5 text-[10px] text-[var(--ink-3)]">
+                    {fmtTime(a.created_at)}
                   </div>
                 </div>
-                <span className="text-xs text-slate-600 font-mono">#{a.id}</span>
               </div>
             ))}
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

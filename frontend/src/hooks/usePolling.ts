@@ -1,14 +1,28 @@
 import { useEffect, useRef, useCallback } from "react";
 
-export function usePolling(fn: () => void, intervalMs: number) {
+export function usePolling(
+  fn: () => void | Promise<void>,
+  intervalMs: number,
+  enabled = true,
+) {
   const savedFn = useRef(fn);
   savedFn.current = fn;
+  const running = useRef(false);
 
-  const tick = useCallback(() => savedFn.current(), []);
+  const tick = useCallback(async () => {
+    if (running.current) return;
+    running.current = true;
+    try {
+      await savedFn.current();
+    } finally {
+      running.current = false;
+    }
+  }, []);
 
   useEffect(() => {
-    tick(); // initial fetch
-    const id = setInterval(tick, intervalMs);
+    if (!enabled) return;
+    void tick(); // initial fetch
+    const id = setInterval(() => void tick(), intervalMs);
     return () => clearInterval(id);
-  }, [intervalMs, tick]);
+  }, [intervalMs, tick, enabled]);
 }

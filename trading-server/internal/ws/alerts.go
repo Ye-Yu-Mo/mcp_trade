@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"log"
 	"sync"
 	"time"
 
@@ -60,11 +61,19 @@ func NewAlertStore(cache *MarketCache, store AlertPersister, trader binance.Trad
 func (a *AlertStore) Add(symbol string, price float64, direction string, message string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.counter++
-	id := generateID(a.counter)
-	a.alerts[id] = &PriceAlert{ID: id, Symbol: symbol, Price: price, Direction: direction, Message: message, CreatedAt: time.Now()}
+	var id string
+	for {
+		a.counter++
+		id = generateID(a.counter)
+		if _, exists := a.alerts[id]; !exists {
+			break
+		}
+	}
+	a.alerts[id] = &PriceAlert{ID: id, Symbol: symbol, Price: price, Direction: direction, Message: message, CreatedAt: time.Now().UTC()}
 	if a.store != nil {
-		a.store.InsertAlert(id, symbol, direction, message, price)
+		if err := a.store.InsertAlert(id, symbol, direction, message, price); err != nil {
+			log.Printf("alert persist %s: %v", id, err)
+		}
 	}
 	return id
 }
@@ -74,7 +83,8 @@ func (a *AlertStore) List() []*PriceAlert {
 	defer a.mu.RUnlock()
 	result := make([]*PriceAlert, 0, len(a.alerts))
 	for _, alert := range a.alerts {
-		result = append(result, alert)
+		cp := *alert
+		result = append(result, &cp)
 	}
 	return result
 }
@@ -85,7 +95,8 @@ func (a *AlertStore) ListTriggered() []*PriceAlert {
 	var result []*PriceAlert
 	for _, alert := range a.alerts {
 		if alert.Triggered {
-			result = append(result, alert)
+			cp := *alert
+			result = append(result, &cp)
 		}
 	}
 	return result

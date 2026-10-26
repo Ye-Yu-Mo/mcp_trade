@@ -66,8 +66,8 @@ func TestUpdateTradePnL(t *testing.T) {
 	}
 
 	records, _ := st.QueryTrades("", 10)
-	if records[0].Status != "FILLED" {
-		t.Errorf("status = %q, want FILLED", records[0].Status)
+	if records[0].Status != "CLOSED" {
+		t.Errorf("status = %q, want CLOSED", records[0].Status)
 	}
 	if records[0].PnL != 15.50 {
 		t.Errorf("pnl = %f, want 15.50", records[0].PnL)
@@ -145,11 +145,16 @@ func TestGetPerformance(t *testing.T) {
 	defer st.Close()
 
 	// 3 wins, 2 losses
-	st.InsertTrade("A", "BUY", 1, 100, "w1", "", "{}"); st.UpdateTradePnL("w1", 20.0)
-	st.InsertTrade("A", "BUY", 1, 100, "w2", "", "{}"); st.UpdateTradePnL("w2", 30.0)
-	st.InsertTrade("A", "BUY", 1, 100, "w3", "", "{}"); st.UpdateTradePnL("w3", 10.0)
-	st.InsertTrade("A", "BUY", 1, 100, "l1", "", "{}"); st.UpdateTradePnL("l1", -15.0)
-	st.InsertTrade("A", "BUY", 1, 100, "l2", "", "{}"); st.UpdateTradePnL("l2", -5.0)
+	st.InsertTrade("A", "BUY", 1, 100, "w1", "", "{}")
+	st.UpdateTradePnL("w1", 20.0)
+	st.InsertTrade("A", "BUY", 1, 100, "w2", "", "{}")
+	st.UpdateTradePnL("w2", 30.0)
+	st.InsertTrade("A", "BUY", 1, 100, "w3", "", "{}")
+	st.UpdateTradePnL("w3", 10.0)
+	st.InsertTrade("A", "BUY", 1, 100, "l1", "", "{}")
+	st.UpdateTradePnL("l1", -15.0)
+	st.InsertTrade("A", "BUY", 1, 100, "l2", "", "{}")
+	st.UpdateTradePnL("l2", -5.0)
 
 	perf, err := st.GetPerformance()
 	if err != nil {
@@ -169,6 +174,32 @@ func TestGetPerformance(t *testing.T) {
 	}
 	if perf.ProfitFactor != 3.0 { // (20+30+10) / (15+5) = 60/20 = 3.0
 		t.Errorf("profit_factor = %f, want 3.0", perf.ProfitFactor)
+	}
+}
+
+func TestEnsureEquityBaseline(t *testing.T) {
+	path := "/tmp/test_m4_baseline.duckdb"
+	os.Remove(path)
+	defer os.Remove(path)
+
+	st, _ := New(path)
+	defer st.Close()
+
+	daily, weekly, err := st.EnsureEquityBaseline(1000)
+	if err != nil {
+		t.Fatalf("EnsureEquityBaseline: %v", err)
+	}
+	if daily != 1000 || weekly != 1000 {
+		t.Fatalf("baseline = %.2f/%.2f, want 1000/1000", daily, weekly)
+	}
+
+	// A later call must reuse today's start, not reset it.
+	daily, weekly, err = st.EnsureEquityBaseline(900)
+	if err != nil {
+		t.Fatalf("EnsureEquityBaseline second: %v", err)
+	}
+	if daily != 1000 || weekly != 1000 {
+		t.Fatalf("baseline reset: %.2f/%.2f, want 1000/1000", daily, weekly)
 	}
 }
 

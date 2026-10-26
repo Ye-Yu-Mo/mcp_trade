@@ -9,11 +9,13 @@ export class ApiClient {
     this.token = localStorage.getItem("trade_api_token") || "";
   }
 
-  setConfig(url: string, token: string) {
+  setConfig(url: string, token: string, persist = true) {
     this.baseUrl = url;
     this.token = token;
-    localStorage.setItem("trade_server_url", url);
-    localStorage.setItem("trade_api_token", token);
+    if (persist) {
+      localStorage.setItem("trade_server_url", url);
+      localStorage.setItem("trade_api_token", token);
+    }
   }
 
   get configured() { return !!this.baseUrl && !!this.token; }

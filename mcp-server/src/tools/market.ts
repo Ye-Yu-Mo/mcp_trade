@@ -255,7 +255,14 @@ export function registerMarketTools(server: any, client: TradingClient) {
     async (args: { symbol?: string }) => {
       const fr = await client.getFundingRate(args.symbol ?? "BTCUSDT");
       const ratePct = (fr.funding_rate * 100).toFixed(4);
-      const sentiment = fr.funding_rate > 0.005 ? "🟡 多头拥挤" : fr.funding_rate < -0.005 ? "🟡 空头拥挤" : "🟢 中性";
+      // Typical funding is ~0.01% (0.0001). 0.05% (0.0005) is already crowded;
+      // the old 0.5% threshold almost never fired.
+      const sentiment =
+        fr.funding_rate > 0.0005
+          ? "🟡 多头拥挤"
+          : fr.funding_rate < -0.0005
+            ? "🟡 空头拥挤"
+            : "🟢 中性";
       return {
         content: [{ type: "text" as const, text: `${fr.symbol} funding: ${ratePct}% ${sentiment} (next: ${new Date(fr.funding_time).toISOString().slice(0,19)})` }],
         structuredContent: fr,
@@ -278,7 +285,7 @@ export function registerMarketTools(server: any, client: TradingClient) {
       const formatted = oi.open_interest >= 1e9 ? (oi.open_interest / 1e9).toFixed(2) + "B" :
         oi.open_interest >= 1e6 ? (oi.open_interest / 1e6).toFixed(1) + "M" : oi.open_interest.toFixed(0);
       return {
-        content: [{ type: "text" as const, text: `${oi.symbol} OI: ${formatted} contracts` }],
+        content: [{ type: "text" as const, text: `${oi.symbol} OI: ${formatted} (base asset units)` }],
         structuredContent: oi,
       };
     },
@@ -350,6 +357,74 @@ export function registerMarketTools(server: any, client: TradingClient) {
       return {
         content: [{ type: "text" as const, text: [header, sep, ...rows].join("\n") }],
         structuredContent: { events },
+      };
+    },
+  );
+
+  // --- market.monitor ---
+  server.registerTool(
+    "market.monitor",
+    {
+      description:
+        "一键监控快照：账户权益、持仓浮动盈亏、已触发/等待中的价格提醒。用于会话恢复、定时巡检或等待入场时快速确认状态。服务端每 3 秒检测提醒，触发后会在这里出现。",
+      inputSchema: {},
+    },
+    async () => {
+      const [alerts, positions, balances] = await Promise.all([
+        client.getAlerts(),
+        client.getPositions(),
+        client.getBalance(),
+      ]);
+      const total = balances
+        .filter((b: any) => ["USDT", "USDC", "BUSD"].includes(b.Asset))
+        .reduce((s: number, b: any) => s + b.TotalBalance, 0);
+      const available = balances
+        .filter((b: any) => ["USDT", "USDC", "BUSD"].includes(b.Asset))
+        .reduce((s: number, b: any) => s + b.AvailableBalance, 0);
+      const unrealized = positions.reduce((s, p) => s + p.UnrealizedPnL, 0);
+      const triggered = alerts.filter((a: any) => a.triggered);
+      const active = alerts.filter((a: any) => !a.triggered);
+
+      const lines: string[] = [
+        "## Monitor",
+        "",
+        `**Equity:** $${(total + unrealized).toFixed(2)} · **Available:** $${available.toFixed(2)} · **Unrealized:** ${unrealized >= 0 ? "+" : ""}${unrealized.toFixed(2)} · **Positions:** ${positions.length}`,
+      ];
+
+      if (positions.length > 0) {
+        lines.push("", "### Positions", "", "| Symbol | Side | Qty | Entry | Mark | PnL |", "|---|---|---|---|---|---|");
+        for (const p of positions) {
+          lines.push(
+            `| ${p.Symbol} | ${p.Side} ${p.Leverage}x | ${p.Quantity} | $${p.EntryPrice} | $${p.MarkPrice} | ${p.UnrealizedPnL >= 0 ? "+" : ""}${p.UnrealizedPnL.toFixed(2)} |`,
+          );
+        }
+      }
+
+      if (triggered.length > 0) {
+        lines.push("", "### 🔔 Triggered Alerts", "");
+        for (const a of triggered) {
+          lines.push(
+            `- **${a.symbol}** ${a.direction === "ABOVE" ? "≥" : "≤"} $${a.price} — ${a.message || "triggered"}`,
+          );
+        }
+      }
+
+      if (active.length > 0) {
+        lines.push("", "### ⏳ Active Alerts", "");
+        for (const a of active) {
+          lines.push(
+            `- ${a.symbol} ${a.direction === "ABOVE" ? "≥" : "≤"} $${a.price} — ${a.message || "(no message)"} · \`${a.id}\``,
+          );
+        }
+      }
+
+      if (positions.length === 0 && alerts.length === 0) {
+        lines.push("", "_No open positions and no alerts._");
+      }
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+        structuredContent: { equity: total + unrealized, available, unrealized, positions, triggered, active },
       };
     },
   );

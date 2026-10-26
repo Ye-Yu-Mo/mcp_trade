@@ -21,11 +21,12 @@ export function registerTradeTools(server: any, client: TradingClient) {
           structuredContent: { trades: [] },
         };
       }
-      const header = "| ID | Symbol | Side | Qty | Price | Status | PnL | Time |";
-      const sep = "|---|---|---|---|---|---|---|---|";
+      const header = "| ID | Symbol | Side | Qty | Entry | Status | PnL | R | Setup | Time |";
+      const sep = "|---|---|---|---|---|---|---|---|---|---|";
       const rows = records.map((r) => {
         const pnlStr = r.PnL !== 0 ? `$${r.PnL.toFixed(2)}` : "-";
-        return `| ${r.ID} | ${r.Symbol} | ${r.Side} | ${r.Quantity} | ${r.Price} | ${r.Status} | ${pnlStr} | ${r.CreatedAt.slice(0, 19)} |`;
+        const rStr = r.RMultiple ? `${r.RMultiple >= 0 ? "+" : ""}${r.RMultiple.toFixed(2)}R` : "-";
+        return `| ${r.ID} | ${r.Symbol} | ${r.Side} | ${r.Quantity} | ${r.Price} | ${r.Status} | ${pnlStr} | ${rStr} | ${r.Setup || "-"} | ${r.CreatedAt.slice(0, 19)} |`;
       });
       return {
         content: [{ type: "text" as const, text: [header, sep, ...rows].join("\n") }],
@@ -103,14 +104,19 @@ export function registerTradeTools(server: any, client: TradingClient) {
         `## Trading Performance`,
         `| Metric | Value |`,
         `|--------|-------|`,
-        `| Total Trades | ${perf.total_trades} |`,
+        `| Closed Trades | ${perf.total_trades} |`,
         `| Win Rate | ${perf.win_rate.toFixed(1)}% |`,
-        `| Win/Loss | ${perf.win_trades}W / ${perf.loss_trades}L |`,
+        `| Win/Loss/BE | ${perf.win_trades}W / ${perf.loss_trades}L / ${perf.breakeven_trades}BE |`,
         `| Total PnL | $${perf.total_pnl.toFixed(2)} |`,
         `| Avg PnL | $${perf.avg_pnl.toFixed(2)} |`,
+        `| Avg R | ${perf.avg_r.toFixed(2)}R |`,
+        `| Expectancy | ${perf.expectancy_r.toFixed(2)}R |`,
         `| Max Win | $${perf.max_win.toFixed(2)} |`,
         `| Max Loss | $${perf.max_loss.toFixed(2)} |`,
-        `| Profit Factor | ${perf.profit_factor.toFixed(2)} |`,
+        `| Profit Factor | ${perf.profit_factor_infinite ? "∞" : perf.profit_factor.toFixed(2)} |`,
+        `| Max Drawdown | $${perf.max_drawdown.toFixed(2)} |`,
+        ``,
+        `_胜率只统计有方向的交易（W+L），不把 0 PnL 算作亏损。_`,
       ].join("\n");
       return {
         content: [{ type: "text" as const, text }],

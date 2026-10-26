@@ -13,7 +13,7 @@ import (
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
 )
 
-func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st *store.Store, cache *ws.MarketCache, alertStore *ws.AlertStore, startTime time.Time, marketStream *ws.MarketStream, userStream *ws.UserDataStream) *chi.Mux {
+func NewRouter(marketData binance.Trader, trader binance.Trader, apiToken string, riskMgr *risk.Manager, st *store.Store, cache *ws.MarketCache, alertStore *ws.AlertStore, startTime time.Time, marketStream *ws.MarketStream, userStream interface{ Connected() bool }, paperMode bool) *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -25,10 +25,15 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 				count++
 			}
 		}
+		userConnected := false
+		if userStream != nil {
+			userConnected = userStream.Connected()
+		}
 		JSON(w, http.StatusOK, map[string]interface{}{
 			"status":      "ok",
+			"paper":       paperMode,
 			"ws_market":   marketStream.Connected(),
-			"ws_userdata": userStream.Connected(),
+			"ws_userdata": userConnected,
 			"cache_items": count,
 			"uptime":      fmt.Sprintf("%.0fs", time.Since(startTime).Seconds()),
 		})
@@ -45,12 +50,12 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(AuthMiddleware(apiToken))
 
-		market := NewMarketHandler(client)
+		market := NewMarketHandler(marketData)
 		market.cache = cache
 		market.alertStore = alertStore
-		account := NewAccountHandler(client)
+		account := NewAccountHandler(trader)
 		account.cache = cache
-		order := NewOrderHandler(client, riskMgr, st)
+		order := NewOrderHandler(trader, riskMgr, st, paperMode)
 		trade := NewTradeHandler(st)
 
 		r.Route("/market", func(r chi.Router) {
@@ -74,6 +79,7 @@ func NewRouter(client binance.Trader, apiToken string, riskMgr *risk.Manager, st
 		})
 		r.Route("/order", func(r chi.Router) {
 			r.Post("/place", order.HandlePlaceOrder)
+			r.Post("/close", order.HandleClose)
 			r.Post("/modify_stop", order.HandleModifyStop)
 			r.Delete("/cancel", order.HandleCancelOrder)
 			r.Post("/oco", order.HandleOCOOrder)

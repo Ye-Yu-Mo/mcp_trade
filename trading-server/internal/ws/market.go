@@ -5,6 +5,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -24,7 +25,7 @@ type MarketStream struct {
 	cache     *MarketCache
 	symbols   []string
 	client    MarketClient
-	connected bool
+	connected atomic.Bool
 	done      chan struct{}
 }
 
@@ -32,7 +33,7 @@ func NewMarketStream(baseURL string, cache *MarketCache, symbols []string, clien
 	return &MarketStream{baseURL: baseURL, cache: cache, symbols: symbols, client: client, done: make(chan struct{})}
 }
 
-func (m *MarketStream) Connected() bool { return m.connected }
+func (m *MarketStream) Connected() bool { return m.connected.Load() }
 
 func (m *MarketStream) Start() {
 	go m.runWS()
@@ -64,13 +65,18 @@ func (m *MarketStream) runWS() {
 
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
-			log.Printf("ws market: cannot connect (%v), using REST polling", err)
-			m.connected = false
-			return // fall back to REST
+			log.Printf("ws market: cannot connect (%v), retrying in %v", err, backoff)
+			m.connected.Store(false)
+			time.Sleep(backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			continue
 		}
 
 		log.Printf("ws market: connected to %s", wsHost)
-		m.connected = true
+		m.connected.Store(true)
 		backoff = 1 * time.Second
 
 		for {
@@ -84,7 +90,7 @@ func (m *MarketStream) runWS() {
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
 				log.Printf("ws market: read: %v, reconnecting", err)
-				m.connected = false
+				m.connected.Store(false)
 				conn.Close()
 				break
 			}
@@ -101,7 +107,8 @@ func (m *MarketStream) runWS() {
 
 func (m *MarketStream) wsHost() string {
 	if strings.Contains(m.baseURL, "testnet") {
-		return "wss://testnet.binancefuture.com/stream"
+		// Binance Futures testnet market streams live on the shared host.
+		return "wss://stream.binancefuture.com/stream"
 	}
 	return "wss://fstream.binance.com/stream"
 }

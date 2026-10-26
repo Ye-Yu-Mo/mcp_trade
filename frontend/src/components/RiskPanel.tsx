@@ -1,44 +1,114 @@
-import type { Position } from "../api/types";
+import type { PerformanceStats, Position } from "../api/types";
+import { fmtSignedUSD, fmtUSD, toneClass } from "../lib/format";
 
-export function RiskPanel({ positions, balance, dailyPnL }: { positions: Position[]; balance: number; dailyPnL: number }) {
-  const marginUsed = positions.reduce((s, p) => s + (p.Quantity * p.MarkPrice / (p.Leverage || 1)), 0);
+export function RiskPanel({
+  positions,
+  balance,
+  dailyPnL,
+  perf,
+}: {
+  positions: Position[];
+  balance: number;
+  dailyPnL: number;
+  perf: PerformanceStats | null;
+}) {
+  const marginUsed = positions.reduce(
+    (s, p) => s + (p.Quantity * p.MarkPrice) / (p.Leverage || 1),
+    0,
+  );
+  const notional = positions.reduce((s, p) => s + p.Quantity * p.MarkPrice, 0);
   const marginRatio = balance > 0 ? Math.min((marginUsed / balance) * 100, 100) : 0;
-  const marginColor = marginRatio > 80 ? "bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.5)]" : marginRatio > 50 ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]" : "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]";
+  const level = marginRatio > 80 ? "critical" : marginRatio > 50 ? "warning" : "good";
+  const fill =
+    level === "critical"
+      ? "bg-[#d03b3b]"
+      : level === "warning"
+        ? "bg-[#fab219]"
+        : "bg-[var(--accent)]";
+  const statusLabel =
+    level === "critical" ? "高风险" : level === "warning" ? "需关注" : "正常";
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md border border-slate-700/50 rounded-2xl overflow-hidden shadow-xl">
-      <div className="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between bg-slate-800/20">
-        <h3 className="text-sm font-medium text-slate-200">引擎健康度 & 风控</h3>
-      </div>
-      <div className="p-5 space-y-5">
+    <section className="panel overflow-hidden">
+      <div className="panel-head">
         <div>
-          <div className="flex justify-between text-xs mb-1.5">
-            <span className="text-slate-300">保证金水位 (Position Limit)</span>
-            <span className="text-slate-400 font-mono">{marginRatio.toFixed(1)}%</span>
+          <div className="panel-title">风控状态</div>
+          <div className="panel-sub mt-0.5">服务端强制校验</div>
+        </div>
+        <span
+          className={`chip ${
+            level === "critical" ? "chip-bad" : level === "warning" ? "chip-warn" : "chip-good"
+          }`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              level === "critical"
+                ? "bg-[#d03b3b]"
+                : level === "warning"
+                  ? "bg-[#fab219]"
+                  : "bg-[#0ca30c]"
+            }`}
+            aria-hidden="true"
+          />
+          {statusLabel}
+        </span>
+      </div>
+
+      <div className="space-y-4 p-5">
+        <div>
+          <div className="mb-1.5 flex items-center justify-between text-[11px]">
+            <span className="text-[var(--ink-2)]">保证金占用</span>
+            <span className="num text-[var(--ink-2)]">{marginRatio.toFixed(1)}%</span>
           </div>
-          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-1000 ease-out ${marginColor}`} style={{ width: `${marginRatio}%` }} />
+          <div className="risk-track">
+            <div className={`risk-fill ${fill}`} style={{ width: `${marginRatio}%` }} />
+          </div>
+          <div className="mt-1.5 flex justify-between text-[10px] text-[var(--ink-3)]">
+            <span>已用 {fmtUSD(marginUsed)}</span>
+            <span>名义 {fmtUSD(notional)}</span>
           </div>
         </div>
-        <div className="pt-5 border-t border-slate-800 space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-500">API 节点延迟</span>
-            <span className="text-emerald-400 flex items-center gap-1">
-              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 在线
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">风控状态</span>
-            <span className={marginRatio > 80 ? "text-rose-400" : "text-emerald-400"}>
-              {marginRatio > 80 ? "⚠️ 警告" : "✅ 正常"}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">今日盈亏</span>
-            <span className={dailyPnL >= 0 ? "text-emerald-400" : "text-rose-400"}>${dailyPnL.toFixed(2)}</span>
-          </div>
+
+        <div className="space-y-2.5 border-t border-[var(--line)] pt-4 text-[12px]">
+          <Row label="持仓数量" value={`${positions.length} 个`} />
+          <Row
+            label="累计已实现"
+            value={fmtSignedUSD(dailyPnL)}
+            valueClass={toneClass(dailyPnL)}
+          />
+          <Row
+            label="胜率 / 盈亏比"
+            value={`${(perf?.win_rate ?? 0).toFixed(1)}% / ${
+              perf?.profit_factor_infinite ? "∞" : (perf?.profit_factor ?? 0).toFixed(2)
+            }`}
+          />
+          <Row
+            label="总交易 / 最大单亏"
+            value={`${perf?.total_trades ?? 0} / ${fmtUSD(perf?.max_loss ?? 0)}`}
+          />
+        </div>
+
+        <div className="rounded-lg border border-[var(--line)] bg-[rgba(148,163,184,0.035)] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--ink-3)]">
+          所有开仓必须带止损；减仓与平仓不受日亏损限制。参数在服务端执行，AI 无法绕过。
         </div>
       </div>
+    </section>
+  );
+}
+
+function Row({
+  label,
+  value,
+  valueClass = "text-[var(--ink-2)]",
+}: {
+  label: string;
+  value: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[var(--ink-3)]">{label}</span>
+      <span className={`num font-medium ${valueClass}`}>{value}</span>
     </div>
   );
 }

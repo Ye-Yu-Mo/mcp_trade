@@ -1,6 +1,11 @@
 package api
 
-import "time"
+import (
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // CalEvent represents an economic calendar event.
 type CalEvent struct {
@@ -11,30 +16,42 @@ type CalEvent struct {
 	Impact   string `json:"impact"` // High / Medium / Low
 }
 
-// getUpcomingEvents returns major events for the next 30 days.
-// This is a static list of recurring monthly events. For real-time data, integrate
-// with an economic calendar API (e.g., ForexFactory, TradingEconomics).
+// getUpcomingEvents returns recurring major US events in the next 30 days.
+// Dates are approximate monthly rules (NFP = first Friday, CPI ~12th, FOMC
+// ~22nd); this is a planning aid, not an authoritative calendar.
 func getUpcomingEvents() []CalEvent {
 	now := time.Now().UTC()
-	year := now.Year()
-	month := now.Month()
-	nextMonth := month + 1
-	if nextMonth > 12 {
-		nextMonth = 1
-		year++
+	cutoff := now.AddDate(0, 0, 30)
+
+	var events []CalEvent
+	for offset := 0; offset <= 1; offset++ {
+		first := time.Date(now.Year(), now.Month()+time.Month(offset), 1, 0, 0, 0, 0, time.UTC)
+		y, m := first.Year(), int(first.Month())
+
+		add := func(date time.Time, clock, name, impact string) {
+			t := time.Date(date.Year(), date.Month(), date.Day(), clockHour(clock), clockMinute(clock), 0, 0, time.UTC)
+			if t.Before(now) || t.After(cutoff) {
+				return
+			}
+			events = append(events, CalEvent{
+				Date: date.Format("2006-01-02"), Time: clock,
+				Event: name, Currency: "USD", Impact: impact,
+			})
+		}
+
+		nfp := firstFriday(m, y)
+		add(nfp, "12:30", "Non-Farm Payrolls (NFP)", "High")
+		add(nfp, "12:30", "Unemployment Rate", "High")
+		add(fmtDate(m, y, 12), "12:30", "CPI (Inflation) m/m", "High")
+		add(fmtDate(m, y, 22), "18:00", "FOMC Interest Rate Decision", "High")
+		add(fmtDate(m, y, 15), "12:30", "Retail Sales m/m", "Medium")
+		add(fmtDate(m, y, 1), "14:00", "ISM Manufacturing PMI", "Medium")
 	}
 
-	// Non-Farm Payrolls: first Friday of each month
-	nfp := firstFriday(int(nextMonth), year)
-
-	return []CalEvent{
-		{Date: nfp.Format("2006-01-02"), Time: "12:30", Event: "Non-Farm Payrolls (NFP)", Currency: "USD", Impact: "High"},
-		{Date: nfp.Format("2006-01-02"), Time: "12:30", Event: "Unemployment Rate", Currency: "USD", Impact: "High"},
-		{Date: cpiDate(int(nextMonth), year).Format("2006-01-02"), Time: "12:30", Event: "CPI (Inflation) m/m", Currency: "USD", Impact: "High"},
-		{Date: fomcDate(int(nextMonth), year).Format("2006-01-02"), Time: "18:00", Event: "FOMC Interest Rate Decision", Currency: "USD", Impact: "High"},
-		{Date: fmtDate(int(nextMonth), year, 15).Format("2006-01-02"), Time: "12:30", Event: "Retail Sales m/m", Currency: "USD", Impact: "Medium"},
-		{Date: fmtDate(int(nextMonth), year, 1).Format("2006-01-02"), Time: "14:00", Event: "ISM Manufacturing PMI", Currency: "USD", Impact: "Medium"},
-	}
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Date+events[i].Time < events[j].Date+events[j].Time
+	})
+	return events
 }
 
 func firstFriday(m int, y int) time.Time {
@@ -45,15 +62,24 @@ func firstFriday(m int, y int) time.Time {
 	return t
 }
 
-func cpiDate(m int, y int) time.Time {
-	return fmtDate(m, y, 12)
-}
-
-func fomcDate(m int, y int) time.Time {
-	// FOMC typically meets around the 20th-25th, approximating
-	return fmtDate(m, y, 22)
-}
-
 func fmtDate(m int, y int, d int) time.Time {
 	return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC)
+}
+
+func clockHour(clock string) int {
+	parts := strings.SplitN(clock, ":", 2)
+	if len(parts) != 2 {
+		return 0
+	}
+	h, _ := strconv.Atoi(parts[0])
+	return h
+}
+
+func clockMinute(clock string) int {
+	parts := strings.SplitN(clock, ":", 2)
+	if len(parts) != 2 {
+		return 0
+	}
+	m, _ := strconv.Atoi(parts[1])
+	return m
 }

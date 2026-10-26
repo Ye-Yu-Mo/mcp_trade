@@ -385,6 +385,11 @@ func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
 	}
 	orderType := strings.ToUpper(req.OrderType)
 	params.Set("type", orderType)
+	if orderType == "MARKET" {
+		// Futures defaults to ACK, which returns status=NEW and zero fill data
+		// even for a market order. RESULT gives the actual fill.
+		params.Set("newOrderRespType", "RESULT")
+	}
 	if req.Quantity > 0 && !req.ClosePosition {
 		params.Set("quantity", strconv.FormatFloat(req.Quantity, 'f', -1, 64))
 	}
@@ -439,7 +444,17 @@ func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("parse order: %w", err)
 	}
-	return raw.toOrder(), nil
+	order := raw.toOrder()
+	// Some venue/edge responses still ACK a market order (status=NEW,
+	// executedQty=0). Re-query once so callers never mistake a filled entry
+	// for an unfilled one.
+	if orderType == "MARKET" && order.Status == "NEW" {
+		time.Sleep(250 * time.Millisecond)
+		if got, err := c.GetOrder(req.Symbol, order.OrderID); err == nil {
+			return got, nil
+		}
+	}
+	return order, nil
 }
 
 // CancelOrder cancels an active order by ID.
@@ -510,6 +525,21 @@ func (c *Client) SetPositionMode(dual bool) error {
 	params.Set("dualSidePosition", strconv.FormatBool(dual))
 	_, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/positionSide/dual", params, true)
 	return err
+}
+
+// GetPositionMode reports whether the account is in hedge (dual-side) mode.
+func (c *Client) GetPositionMode() (bool, error) {
+	body, err := c.get(context.Background(), "/fapi/v1/positionSide/dual", nil, true)
+	if err != nil {
+		return false, err
+	}
+	var raw struct {
+		DualSidePosition bool `json:"dualSidePosition"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return false, fmt.Errorf("parse position mode: %w", err)
+	}
+	return raw.DualSidePosition, nil
 }
 
 // SetMarginType sets the margin type for a symbol. marginType: "ISOLATED" or "CROSSED".

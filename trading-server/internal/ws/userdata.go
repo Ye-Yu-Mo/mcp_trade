@@ -6,14 +6,17 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/store"
 )
 
 // UserDataStream connects to the Binance User Data Stream for account events.
 type UserDataStream struct {
-	connected bool
+	connected atomic.Bool
 	client    UserDataClient
 	store     TradeStore
 	cache     *MarketCache
@@ -25,11 +28,13 @@ type UserDataStream struct {
 type UserDataClient interface {
 	GetListenKey() (string, error)
 	KeepAliveListenKey(listenKey string) error
+	GetPositions() ([]binance.Position, error)
 }
 
-// TradeStore abstracts the store for updating trade records.
+// TradeStore abstracts the store for the position-level trade lifecycle.
 type TradeStore interface {
-	UpdateTradeByOrderID(orderID, status string, pnl float64, avgPrice float64) error
+	FindOpenTradeBySymbol(symbol string) (*store.TradeRecord, error)
+	CloseTrade(tradeID int64, exitPrice, pnl, fees, rMultiple float64, exitReason string) error
 }
 
 // NewUserDataStream creates a user data stream handler.
@@ -44,7 +49,7 @@ func NewUserDataStream(client UserDataClient, store TradeStore, cache *MarketCac
 }
 
 func (u *UserDataStream) Start()          { go u.loop() }
-func (u *UserDataStream) Connected() bool { return u.connected }
+func (u *UserDataStream) Connected() bool { return u.connected.Load() }
 func (u *UserDataStream) Stop()           { close(u.done) }
 
 func (u *UserDataStream) loop() {
@@ -69,7 +74,9 @@ func (u *UserDataStream) loop() {
 			continue
 		}
 
-		// Keep-alive every 30 min
+		// Keep-alive is scoped to this connection: close it before reconnecting
+		// so old goroutines cannot keep extending a stale listen key.
+		keepAliveDone := make(chan struct{})
 		go func() {
 			ticker := time.NewTicker(30 * time.Minute)
 			defer ticker.Stop()
@@ -77,13 +84,19 @@ func (u *UserDataStream) loop() {
 				select {
 				case <-u.done:
 					return
+				case <-keepAliveDone:
+					return
 				case <-ticker.C:
-					u.client.KeepAliveListenKey(listenKey)
+					if err := u.client.KeepAliveListenKey(listenKey); err != nil {
+						log.Printf("ws userdata: keepalive: %v", err)
+					}
 				}
 			}
 		}()
 
-		if err := u.connect(listenKey); err != nil {
+		err = u.connect(listenKey)
+		close(keepAliveDone)
+		if err != nil {
 			log.Printf("ws userdata: %v, reconnecting in %v", err, backoff)
 			time.Sleep(backoff)
 			backoff *= 2
@@ -100,7 +113,7 @@ func (u *UserDataStream) connect(listenKey string) error {
 	// Use testnet WS for testnet, mainnet WS for mainnet
 	wsHost := "wss://fstream.binance.com/ws"
 	if strings.Contains(u.baseURL, "testnet") {
-		wsHost = "wss://testnet.binancefuture.com/ws"
+		wsHost = "wss://stream.binancefuture.com/ws"
 	}
 	wsURL := fmt.Sprintf("%s/%s", wsHost, listenKey)
 
@@ -110,7 +123,8 @@ func (u *UserDataStream) connect(listenKey string) error {
 	}
 	defer conn.Close()
 	log.Printf("ws userdata: connected to %s", wsHost)
-	u.connected = true
+	u.connected.Store(true)
+	defer u.connected.Store(false)
 
 	// The user data stream can be silent for minutes. Keep the connection
 	// alive with control pings and use a generous read deadline; otherwise a
@@ -142,7 +156,6 @@ func (u *UserDataStream) connect(listenKey string) error {
 		conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			u.connected = false
 			return fmt.Errorf("read: %w", err)
 		}
 		u.handleMessage(msg)
@@ -167,42 +180,102 @@ func (u *UserDataStream) handleMessage(msg []byte) {
 func (u *UserDataStream) handleOrderUpdate(msg []byte) {
 	var evt struct {
 		Order struct {
-			Symbol      string `json:"s"`
-			OrderID     int64  `json:"i"`
-			Status      string `json:"X"`
-			Side        string `json:"S"`
-			AvgPrice    string `json:"ap"`
-			OrigQty     string `json:"q"`
-			RealizedPnL string `json:"rp"`
+			Symbol        string `json:"s"`
+			OrderID       int64  `json:"i"`
+			Status        string `json:"X"`
+			Side          string `json:"S"`
+			OrderType     string `json:"o"`
+			AvgPrice      string `json:"ap"`
+			OrigQty       string `json:"q"`
+			RealizedPnL   string `json:"rp"`
+			Commission    string `json:"n"`
+			ReduceOnly    bool   `json:"R"`
+			ClosePosition bool   `json:"cp"`
 		} `json:"o"`
 	}
 	if json.Unmarshal(msg, &evt) != nil {
 		return
 	}
-
-	orderID := strconv.FormatInt(evt.Order.OrderID, 10)
-	status := evt.Order.Status
-
-	if status == "FILLED" || status == "CANCELED" || status == "EXPIRED" {
-		pnl, _ := strconv.ParseFloat(evt.Order.RealizedPnL, 64)
-		avgPrice, _ := strconv.ParseFloat(evt.Order.AvgPrice, 64)
-		log.Printf("ws userdata: order %s %s, pnl=%.2f", orderID, status, pnl)
-		u.store.UpdateTradeByOrderID(orderID, status, pnl, avgPrice)
+	if evt.Order.Status != "FILLED" {
+		return
 	}
+
+	isReduce := evt.Order.ReduceOnly || evt.Order.ClosePosition ||
+		strings.Contains(evt.Order.OrderType, "STOP") ||
+		strings.Contains(evt.Order.OrderType, "TAKE_PROFIT")
+	if !isReduce {
+		// Entry fills are journaled by the order API, which has the full
+		// thesis/stop/target metadata.
+		return
+	}
+
+	trade, err := u.store.FindOpenTradeBySymbol(evt.Order.Symbol)
+	if err != nil {
+		log.Printf("ws userdata: find trade %s: %v", evt.Order.Symbol, err)
+		return
+	}
+	if trade == nil {
+		return
+	}
+
+	// Only close the position-level trade when the position is actually flat;
+	// a partial reduce leaves the trade OPEN.
+	positions, err := u.client.GetPositions()
+	if err == nil {
+		var qty float64
+		for _, p := range positions {
+			if p.Symbol == evt.Order.Symbol {
+				qty += p.Quantity
+			}
+		}
+		if qty > 1e-9 {
+			log.Printf("ws userdata: partial reduce on %s (%.8f left); trade %d stays OPEN",
+				evt.Order.Symbol, qty, trade.ID)
+			return
+		}
+	}
+
+	pnl, _ := strconv.ParseFloat(evt.Order.RealizedPnL, 64)
+	commission, _ := strconv.ParseFloat(evt.Order.Commission, 64)
+	avgPrice, _ := strconv.ParseFloat(evt.Order.AvgPrice, 64)
+
+	netPnL := pnl - commission
+	rMultiple := 0.0
+	if trade.RiskAmount > 0 {
+		rMultiple = netPnL / trade.RiskAmount
+	}
+	reason := "EXCHANGE"
+	switch {
+	case strings.Contains(evt.Order.OrderType, "TAKE_PROFIT"):
+		reason = "TAKE_PROFIT"
+	case strings.Contains(evt.Order.OrderType, "STOP"):
+		reason = "STOP"
+	}
+	if err := u.store.CloseTrade(trade.ID, avgPrice, netPnL, commission, rMultiple, reason); err != nil {
+		log.Printf("ws userdata: close trade %d: %v", trade.ID, err)
+		return
+	}
+	log.Printf("ws userdata: closed trade %d %s pnl=%.4f (%.2fR) reason=%s",
+		trade.ID, evt.Order.Symbol, netPnL, rMultiple, reason)
 }
 
 func (u *UserDataStream) handleAccountUpdate(msg []byte) {
 	var evt struct {
-		Balances []struct {
-			Asset   string `json:"a"`
-			Balance string `json:"wb"`
+		Account struct {
+			Balances []struct {
+				Asset         string `json:"a"`
+				WalletBalance string `json:"wb"`
+			} `json:"B"`
 		} `json:"a"`
 	}
 	if json.Unmarshal(msg, &evt) != nil {
 		return
 	}
-	for _, b := range evt.Balances {
-		bal, _ := strconv.ParseFloat(b.Balance, 64)
+	if u.cache == nil {
+		return
+	}
+	for _, b := range evt.Account.Balances {
+		bal, _ := strconv.ParseFloat(b.WalletBalance, 64)
 		u.cache.SetPrice(b.Asset+"_balance", bal)
 	}
 }

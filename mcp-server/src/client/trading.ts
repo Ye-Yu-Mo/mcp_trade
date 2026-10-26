@@ -1,4 +1,4 @@
-import type { Kline, Ticker, OrderBook, Balance, Position, Order, OrderPreview, TradeRecord, PerformanceStats, JournalEntry } from "./types.js";
+import type { Kline, Ticker, OrderBook, Balance, Position, Order, OrderPreview, BracketResult, TradeRecord, PerformanceStats, JournalEntry } from "./types.js";
 
 export class TradingClient {
   constructor(
@@ -97,18 +97,34 @@ export class TradingClient {
     symbol: string;
     side: string;
     type: string;
-    quantity: number;
+    quantity?: number;
     price?: number;
     stopPrice?: number;
+    takeProfit?: number;
+    riskPct?: number;
+    leverage?: number;
+    reduceOnly?: boolean;
+    closePosition?: boolean;
+    entryReason?: string;
+    setup?: string;
+    tags?: string;
     positionSide?: string;
   }): Promise<OrderPreview> {
     const form = new URLSearchParams();
     form.set("symbol", params.symbol);
     form.set("side", params.side);
     form.set("type", params.type);
-    form.set("quantity", String(params.quantity));
-    if (params.price) form.set("price", String(params.price));
-    if (params.stopPrice) form.set("stop_price", String(params.stopPrice));
+    if (params.quantity !== undefined) form.set("quantity", String(params.quantity));
+    if (params.price !== undefined) form.set("price", String(params.price));
+    if (params.stopPrice !== undefined) form.set("stop_price", String(params.stopPrice));
+    if (params.takeProfit !== undefined) form.set("take_profit_price", String(params.takeProfit));
+    if (params.riskPct !== undefined) form.set("risk_pct", String(params.riskPct));
+    if (params.leverage !== undefined) form.set("leverage", String(params.leverage));
+    if (params.reduceOnly) form.set("reduce_only", "true");
+    if (params.closePosition) form.set("close_position", "true");
+    if (params.entryReason) form.set("entry_reason", params.entryReason);
+    if (params.setup) form.set("setup", params.setup);
+    if (params.tags) form.set("tags", params.tags);
     if (params.positionSide) form.set("position_side", params.positionSide);
     return this.post<OrderPreview>("/api/v1/order/place", form);
   }
@@ -117,23 +133,47 @@ export class TradingClient {
     symbol: string;
     side: string;
     type: string;
-    quantity: number;
+    quantity?: number;
     price?: number;
     stopPrice?: number;
+    takeProfit?: number;
+    riskPct?: number;
+    leverage?: number;
+    reduceOnly?: boolean;
+    closePosition?: boolean;
+    entryReason?: string;
+    setup?: string;
+    tags?: string;
     positionSide?: string;
     planId: string;
-  }): Promise<Order> {
+  }): Promise<BracketResult> {
     const form = new URLSearchParams();
     form.set("symbol", params.symbol);
     form.set("side", params.side);
     form.set("type", params.type);
-    form.set("quantity", String(params.quantity));
-    if (params.price) form.set("price", String(params.price));
-    if (params.stopPrice) form.set("stop_price", String(params.stopPrice));
+    if (params.quantity !== undefined) form.set("quantity", String(params.quantity));
+    if (params.price !== undefined) form.set("price", String(params.price));
+    if (params.stopPrice !== undefined) form.set("stop_price", String(params.stopPrice));
+    if (params.takeProfit !== undefined) form.set("take_profit_price", String(params.takeProfit));
+    if (params.riskPct !== undefined) form.set("risk_pct", String(params.riskPct));
+    if (params.leverage !== undefined) form.set("leverage", String(params.leverage));
+    if (params.reduceOnly) form.set("reduce_only", "true");
+    if (params.closePosition) form.set("close_position", "true");
+    if (params.entryReason) form.set("entry_reason", params.entryReason);
+    if (params.setup) form.set("setup", params.setup);
+    if (params.tags) form.set("tags", params.tags);
     if (params.positionSide) form.set("position_side", params.positionSide);
     form.set("confirm", "true");
     form.set("plan_id", params.planId);
-    return this.post<Order>("/api/v1/order/place", form);
+    return this.post<BracketResult>("/api/v1/order/place", form);
+  }
+
+  async closePosition(symbol: string, quantity?: number, reason?: string): Promise<Order> {
+    const form = new URLSearchParams();
+    form.set("symbol", symbol);
+    if (quantity !== undefined && quantity > 0) form.set("quantity", String(quantity));
+    if (reason) form.set("reason", reason);
+    return this.post<Order>("/api/v1/order/close", form);
   }
 
   async cancelOrder(symbol: string, orderId: number): Promise<Order> {

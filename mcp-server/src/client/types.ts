@@ -57,8 +57,11 @@ export interface Order {
   executedQty: string;
   type: string;
   side: string;
+  positionSide?: string;
   stopPrice: string;
   timeInForce: string;
+  reduceOnly?: boolean;
+  closePosition?: boolean;
   updateTime: number;
 }
 
@@ -70,11 +73,35 @@ export interface OrderPreview {
   quantity: number;
   price: number;
   stop_price: number;
+  take_profit: number;
+  notional: number;
+  risk_amount: number;
+  risk_pct: number;
+  margin: number;
+  leverage: number;
+  reduce_only: boolean;
+  close_position: boolean;
+  equity: number;
+  available: number;
+  open_risk: number;
+  open_positions: number;
+  daily_pnl: number;
   risk: {
     passed: boolean;
+    code?: string;
+    reason?: string;
     checks: string[];
     warnings: string[] | null;
   };
+}
+
+export interface BracketResult {
+  entry: Order;
+  stop?: Order;
+  take_profit?: Order;
+  trade_id?: number;
+  warning?: string;
+  risk: OrderPreview;
 }
 
 // --- Trade Journal Types ---
@@ -91,7 +118,17 @@ export interface TradeRecord {
   ExitReason: string;
   PnL: number;
   MarketSnapshot: string;
+  StopPrice?: number;
+  TakeProfit?: number;
+  ExitPrice?: number;
+  Setup?: string;
+  Tags?: string;
+  Leverage?: number;
+  RiskAmount?: number;
+  RMultiple?: number;
+  Fees?: number;
   CreatedAt: string;
+  ClosedAt?: string | null;
   UpdatedAt: string;
 }
 
@@ -99,12 +136,17 @@ export interface PerformanceStats {
   total_trades: number;
   win_trades: number;
   loss_trades: number;
+  breakeven_trades: number;
   win_rate: number;
   total_pnl: number;
   avg_pnl: number;
   max_win: number;
   max_loss: number;
   profit_factor: number;
+  profit_factor_infinite: boolean;
+  avg_r: number;
+  expectancy_r: number;
+  max_drawdown: number;
 }
 
 export interface JournalEntry {

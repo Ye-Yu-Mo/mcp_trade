@@ -24,6 +24,20 @@ type Config struct {
 	// account settings (position mode, margin type, leverage). Default false:
 	// the server must never mutate the account unless explicitly asked.
 	SetupAccount bool
+
+	// Paper trading
+	PaperMode      bool
+	MarketDataURL  string
+	PaperBalance   float64
+	PaperStatePath string
+
+	// Risk v2 (fractions of equity)
+	RiskPerTradePct float64
+	MaxTotalRiskPct float64
+	MaxPositions    int
+	MaxLeverage     float64
+	DailyLossPct    float64
+	WeeklyLossPct   float64
 }
 
 // Load reads configuration from environment variables.
@@ -44,10 +58,18 @@ func Load() (*Config, error) {
 	if env == "" {
 		env = "testnet"
 	}
+	paperMode := env == "paper"
 
 	baseURL := "https://testnet.binancefuture.com"
-	if env == "mainnet" {
+	if env == "mainnet" || paperMode {
 		baseURL = "https://fapi.binance.com"
+	}
+
+	// Market data is deliberately decoupled from the trading venue so paper
+	// and testnet runs still see real mainnet prices.
+	marketDataURL := os.Getenv("MARKET_DATA_URL")
+	if marketDataURL == "" {
+		marketDataURL = "https://fapi.binance.com"
 	}
 
 	serverPort := os.Getenv("SERVER_PORT")
@@ -82,6 +104,24 @@ func Load() (*Config, error) {
 
 	setupAccount := os.Getenv("SETUP_ACCOUNT") == "true"
 
+	paperBalance := 33.12
+	if v := os.Getenv("PAPER_BALANCE"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			paperBalance = f
+		}
+	}
+	paperStatePath := os.Getenv("PAPER_STATE_PATH")
+	if paperStatePath == "" {
+		paperStatePath = "data/paper_state.json"
+	}
+
+	riskPerTradePct := envFloat("RISK_PER_TRADE_PCT", 0.01)
+	maxTotalRiskPct := envFloat("MAX_TOTAL_RISK_PCT", 0.03)
+	maxPositions := envInt("MAX_POSITIONS", 2)
+	maxLeverage := envFloat("MAX_LEVERAGE", 5)
+	dailyLossPct := envFloat("DAILY_LOSS_PCT", 0.03)
+	weeklyLossPct := envFloat("WEEKLY_LOSS_PCT", 0.08)
+
 	return &Config{
 		APIKey:             apiKey,
 		APISecret:          apiSecret,
@@ -93,5 +133,33 @@ func Load() (*Config, error) {
 		MaxStopLossPercent: maxStopLossPercent,
 		DailyLossLimit:     dailyLossLimit,
 		SetupAccount:       setupAccount,
+		PaperMode:          paperMode,
+		MarketDataURL:      marketDataURL,
+		PaperBalance:       paperBalance,
+		PaperStatePath:     paperStatePath,
+		RiskPerTradePct:    riskPerTradePct,
+		MaxTotalRiskPct:    maxTotalRiskPct,
+		MaxPositions:       maxPositions,
+		MaxLeverage:        maxLeverage,
+		DailyLossPct:       dailyLossPct,
+		WeeklyLossPct:      weeklyLossPct,
 	}, nil
+}
+
+func envFloat(key string, fallback float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
 }

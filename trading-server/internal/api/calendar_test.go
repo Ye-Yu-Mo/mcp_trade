@@ -19,8 +19,8 @@ func TestHandleCalendar(t *testing.T) {
 
 	var resp struct {
 		Data []struct {
-			Date  string `json:"date"`
-			Event string `json:"event"`
+			Date   string `json:"date"`
+			Event  string `json:"event"`
 			Impact string `json:"impact"`
 		} `json:"data"`
 	}

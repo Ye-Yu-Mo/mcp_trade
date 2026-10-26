@@ -10,9 +10,9 @@ import (
 // MarketCache holds the latest market data from WebSocket streams.
 // Thread-safe via sync.RWMutex.
 type MarketCache struct {
-	mu        sync.RWMutex
-	prices    map[string]float64          // symbol → latest price
-	klines    map[string]binance.Kline    // symbol:interval → latest kline
+	mu         sync.RWMutex
+	prices     map[string]float64           // symbol → latest price
+	klines     map[string]binance.Kline     // symbol:interval → latest kline
 	orderBooks map[string]binance.OrderBook // symbol → latest order book
 }
 
@@ -70,13 +70,31 @@ func (c *MarketCache) GetOrderBook(symbol string) (binance.OrderBook, bool) {
 	return ob, ok
 }
 
-// Snapshot returns all cached data for the market.watch endpoint.
+// Snapshot returns a copy of all cached data for the market.watch endpoint.
+// Copying under the read lock is required: returning the live maps would let
+// JSON encoding race with the WebSocket writers and panic the process.
 func (c *MarketCache) Snapshot() map[string]interface{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
+	prices := make(map[string]float64, len(c.prices))
+	for k, v := range c.prices {
+		prices[k] = v
+	}
+	klines := make(map[string]binance.Kline, len(c.klines))
+	for k, v := range c.klines {
+		klines[k] = v
+	}
+	books := make(map[string]binance.OrderBook, len(c.orderBooks))
+	for k, v := range c.orderBooks {
+		cp := v
+		cp.Bids = append([]binance.OrderBookLevel(nil), v.Bids...)
+		cp.Asks = append([]binance.OrderBookLevel(nil), v.Asks...)
+		books[k] = cp
+	}
 	return map[string]interface{}{
-		"prices":     c.prices,
-		"klines":     c.klines,
-		"orderBooks": c.orderBooks,
+		"prices":     prices,
+		"klines":     klines,
+		"orderBooks": books,
 	}
 }

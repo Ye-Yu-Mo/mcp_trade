@@ -57,12 +57,21 @@ type NewOrderRequest struct {
 	Quantity        float64 // 数量
 	Price           float64 // 限价（LIMIT 必填）
 	StopPrice       float64 // 止损价（STOP_MARKET 必填）
+	TakeProfit      float64 // 纸面盘元数据：入场时已知的止盈价（实盘客户端不发送）
 	ReduceOnly      bool    // 仅减仓（平仓用）
 	ClosePosition   bool    // 条件单触发时平掉整个仓位（不能与 Quantity/ReduceOnly 同用）
 	ClientOrderID   string  // 自定义订单号，用于幂等与追踪
 	WorkingType     string  // MARK_PRICE / CONTRACT_PRICE，默认 CONTRACT_PRICE
 	ActivationPrice float64 // TRAILING_STOP_MARKET 激活价（可选）
 	CallbackRate    float64 // TRAILING_STOP_MARKET 回调比例（百分比，如 1.0 = 1%）
+
+	// Metadata used by the paper broker and trade journal. The live client
+	// ignores these fields.
+	Leverage    float64
+	RiskAmount  float64
+	EntryReason string
+	Setup       string
+	Tags        string
 }
 
 // SymbolInfo holds exchange trading rules for one symbol.

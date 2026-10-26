@@ -8,6 +8,7 @@ bin/
 data/*.db
 data/*.duckdb
 data/*.wal
+data/*.json
 
 # IDE
 .idea/

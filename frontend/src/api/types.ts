@@ -43,8 +43,12 @@ export interface Order {
   type: string;
   side: string;
   price: string;
+  stopPrice?: string;
   origQty: string;
   executedQty: string;
+  reduceOnly?: boolean;
+  closePosition?: boolean;
+  positionSide?: string;
 }
 
 export interface TradeRecord {
@@ -56,6 +60,11 @@ export interface TradeRecord {
   Status: string;
   PnL: number;
   CreatedAt: string;
+  ExitPrice?: number;
+  RMultiple?: number;
+  Setup?: string;
+  Tags?: string;
+  ClosedAt?: string | null;
 }
 
 export interface PerformanceStats {
@@ -68,4 +77,5 @@ export interface PerformanceStats {
   max_win: number;
   max_loss: number;
   profit_factor: number;
+  profit_factor_infinite?: boolean;
 }

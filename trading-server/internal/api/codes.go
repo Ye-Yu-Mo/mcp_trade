@@ -7,6 +7,8 @@ const (
 	CodeMissingParam     = "MISSING_PARAM"
 	CodeInvalidParam     = "INVALID_PARAM"
 	CodePlanMismatch     = "PLAN_MISMATCH"
+	CodePlanExpired      = "PLAN_EXPIRED"
+	CodePositionNotFound = "POSITION_NOT_FOUND"
 	CodeRiskPositionSize = "RISK_POSITION_SIZE"
 	CodeRiskStopLoss     = "RISK_STOP_LOSS"
 	CodeRiskDailyLoss    = "RISK_DAILY_LOSS"
