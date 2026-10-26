@@ -40,3 +40,6 @@ Thumbs.db
 package-lock.json
 mcp-server/.mcp-config.json
 trading-server/mcp-trade.service
+
+# Frontend build output
+trading-server/frontend-dist/

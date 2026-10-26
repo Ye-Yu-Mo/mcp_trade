@@ -157,16 +157,21 @@ func (m *MarketStream) parseEvent(streamName string, data json.RawMessage) {
 			BidPrice string `json:"b"`
 			BidQty   string `json:"B"`
 			AskPrice string `json:"a"`
+			// AskQty must be declared explicitly: otherwise Go's
+			// case-insensitive matching lets the later "A" key overwrite
+			// AskPrice and produce a bogus (bid + qty) / 2 mid price.
+			AskQty string `json:"A"`
 		}
 		if json.Unmarshal(data, &evt) == nil {
 			bid, _ := strconv.ParseFloat(evt.BidPrice, 64)
 			bidQty, _ := strconv.ParseFloat(evt.BidQty, 64)
 			ask, _ := strconv.ParseFloat(evt.AskPrice, 64)
+			askQty, _ := strconv.ParseFloat(evt.AskQty, 64)
 			m.cache.SetPrice(symbol, (bid+ask)/2)
 			m.cache.SetOrderBook(symbol, binance.OrderBook{
 				Symbol: symbol,
 				Bids:   []binance.OrderBookLevel{{Price: bid, Quantity: bidQty}},
-				Asks:   []binance.OrderBookLevel{{Price: ask, Quantity: 0}},
+				Asks:   []binance.OrderBookLevel{{Price: ask, Quantity: askQty}},
 			})
 		}
 	case strings.Contains(streamName, "@kline"):

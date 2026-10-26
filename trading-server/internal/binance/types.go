@@ -50,50 +50,70 @@ type OrderBook struct {
 
 // NewOrderRequest is the input for creating a new order.
 type NewOrderRequest struct {
-	Symbol       string  // 交易对
-	Side         string  // BUY / SELL
-	PositionSide string  // LONG / SHORT / BOTH（默认 BOTH，单向模式）
-	OrderType    string  // LIMIT / MARKET / STOP_MARKET
-	Quantity     float64 // 数量
-	Price        float64 // 限价（LIMIT 必填）
-	StopPrice    float64 // 止损价（STOP_MARKET 必填）
-	ReduceOnly   bool    // 仅减仓（平仓用）
+	Symbol          string  // 交易对
+	Side            string  // BUY / SELL
+	PositionSide    string  // LONG / SHORT / BOTH（默认 BOTH，单向模式）
+	OrderType       string  // LIMIT / MARKET / STOP_MARKET / TAKE_PROFIT_MARKET / TRAILING_STOP_MARKET
+	Quantity        float64 // 数量
+	Price           float64 // 限价（LIMIT 必填）
+	StopPrice       float64 // 止损价（STOP_MARKET 必填）
+	ReduceOnly      bool    // 仅减仓（平仓用）
+	ClosePosition   bool    // 条件单触发时平掉整个仓位（不能与 Quantity/ReduceOnly 同用）
+	ClientOrderID   string  // 自定义订单号，用于幂等与追踪
+	WorkingType     string  // MARK_PRICE / CONTRACT_PRICE，默认 CONTRACT_PRICE
+	ActivationPrice float64 // TRAILING_STOP_MARKET 激活价（可选）
+	CallbackRate    float64 // TRAILING_STOP_MARKET 回调比例（百分比，如 1.0 = 1%）
+}
+
+// SymbolInfo holds exchange trading rules for one symbol.
+type SymbolInfo struct {
+	Symbol            string
+	Status            string
+	TickSize          float64
+	StepSize          float64
+	MinNotional       float64
+	MaxLeverage       float64
+	PricePrecision    int
+	QuantityPrecision int
 }
 
 // Order represents a single order returned from Binance.
 type Order struct {
-	OrderID      int64   `json:"orderId"`
-	Symbol       string  `json:"symbol"`
-	Status       string  `json:"status"`
-	ClientOrderID string `json:"clientOrderId"`
-	Price        float64 `json:"price,string"`
-	AvgPrice     float64 `json:"avgPrice,string"`
-	OrigQty      float64 `json:"origQty,string"`
-	ExecutedQty  float64 `json:"executedQty,string"`
-	Type         string  `json:"type"`
-	Side         string  `json:"side"`
-	StopPrice    float64 `json:"stopPrice,string"`
-	TimeInForce  string  `json:"timeInForce"`
-	UpdateTime   int64   `json:"updateTime"`
+	OrderID       int64   `json:"orderId"`
+	Symbol        string  `json:"symbol"`
+	Status        string  `json:"status"`
+	ClientOrderID string  `json:"clientOrderId"`
+	Price         float64 `json:"price,string"`
+	AvgPrice      float64 `json:"avgPrice,string"`
+	OrigQty       float64 `json:"origQty,string"`
+	ExecutedQty   float64 `json:"executedQty,string"`
+	Type          string  `json:"type"`
+	Side          string  `json:"side"`
+	PositionSide  string  `json:"positionSide"`
+	StopPrice     float64 `json:"stopPrice,string"`
+	TimeInForce   string  `json:"timeInForce"`
+	ReduceOnly    bool    `json:"reduceOnly"`
+	ClosePosition bool    `json:"closePosition"`
+	UpdateTime    int64   `json:"updateTime"`
 }
 
 // OrderPreview is returned by the Plan phase (without confirm).
 // It shows what the order will look like and the risk assessment.
 type OrderPreview struct {
-	PlanID   string      `json:"plan_id"`
-	Symbol   string      `json:"symbol"`
-	Side     string      `json:"side"`
-	Type     string      `json:"type"`
-	Quantity float64     `json:"quantity"`
-	Price    float64     `json:"price"`
-	StopPrice float64    `json:"stop_price"`
-	Risk     RiskCheck   `json:"risk"`
+	PlanID    string    `json:"plan_id"`
+	Symbol    string    `json:"symbol"`
+	Side      string    `json:"side"`
+	Type      string    `json:"type"`
+	Quantity  float64   `json:"quantity"`
+	Price     float64   `json:"price"`
+	StopPrice float64   `json:"stop_price"`
+	Risk      RiskCheck `json:"risk"`
 }
 
 // RiskCheck holds the result of pre-trade risk checks.
 type RiskCheck struct {
-	Passed  bool     `json:"passed"`
-	Checks  []string `json:"checks"`
+	Passed   bool     `json:"passed"`
+	Checks   []string `json:"checks"`
 	Warnings []string `json:"warnings"`
 }
 

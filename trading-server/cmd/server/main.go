@@ -28,15 +28,20 @@ func main() {
 	client := binance.NewClient(cfg.APIKey, cfg.APISecret, cfg.BaseURL)
 	log.Printf("[init] binance client: %s", cfg.BaseURL)
 
-	// Account setup (non-fatal on mainnet where mode may already be set)
-	if err := client.SetPositionMode(false); err != nil {
-		log.Printf("[init] warn: position mode: %v", err)
+	// Account setup is opt-in only. Changing position mode / margin type /
+	// leverage on startup can silently alter an existing live account.
+	if cfg.SetupAccount {
+		if err := client.SetPositionMode(false); err != nil {
+			log.Printf("[init] warn: position mode: %v", err)
+		}
+		for _, sym := range []string{"BTCUSDT", "ETHUSDT"} {
+			client.SetMarginType(sym, "CROSSED")
+			client.SetLeverage(sym, 1)
+		}
+		log.Println("[init] account setup done")
+	} else {
+		log.Println("[init] account setup skipped (SETUP_ACCOUNT != true)")
 	}
-	for _, sym := range []string{"BTCUSDT", "ETHUSDT"} {
-		client.SetMarginType(sym, "CROSSED")
-		client.SetLeverage(sym, 1)
-	}
-	log.Println("[init] account setup done")
 
 	riskMgr := risk.NewManager(risk.ManagerConfig{
 		MaxPositionPercent: cfg.MaxPositionPercent,

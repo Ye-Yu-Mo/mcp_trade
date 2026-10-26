@@ -14,11 +14,11 @@ import (
 // UserDataStream connects to the Binance User Data Stream for account events.
 type UserDataStream struct {
 	connected bool
-	client  UserDataClient
-	store   TradeStore
-	cache   *MarketCache
-	baseURL string
-	done    chan struct{}
+	client    UserDataClient
+	store     TradeStore
+	cache     *MarketCache
+	baseURL   string
+	done      chan struct{}
 }
 
 // UserDataClient abstracts the Binance client for listen key management.
@@ -43,9 +43,9 @@ func NewUserDataStream(client UserDataClient, store TradeStore, cache *MarketCac
 	}
 }
 
-func (u *UserDataStream) Start() { go u.loop() }
+func (u *UserDataStream) Start()          { go u.loop() }
 func (u *UserDataStream) Connected() bool { return u.connected }
-func (u *UserDataStream) Stop()  { close(u.done) }
+func (u *UserDataStream) Stop()           { close(u.done) }
 
 func (u *UserDataStream) loop() {
 	backoff := 1 * time.Second
@@ -112,6 +112,26 @@ func (u *UserDataStream) connect(listenKey string) error {
 	log.Printf("ws userdata: connected to %s", wsHost)
 	u.connected = true
 
+	// The user data stream can be silent for minutes. Keep the connection
+	// alive with control pings and use a generous read deadline; otherwise a
+	// 60s deadline forces a reconnect even when the socket is healthy.
+	pingDone := make(chan struct{})
+	defer close(pingDone)
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-u.done:
+				return
+			case <-pingDone:
+				return
+			case <-ticker.C:
+				conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second))
+			}
+		}
+	}()
+
 	for {
 		select {
 		case <-u.done:
@@ -119,10 +139,10 @@ func (u *UserDataStream) connect(listenKey string) error {
 		default:
 		}
 
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
-	u.connected = false
+			u.connected = false
 			return fmt.Errorf("read: %w", err)
 		}
 		u.handleMessage(msg)
@@ -130,7 +150,9 @@ func (u *UserDataStream) connect(listenKey string) error {
 }
 
 func (u *UserDataStream) handleMessage(msg []byte) {
-	var event struct{ EventType string `json:"e"` }
+	var event struct {
+		EventType string `json:"e"`
+	}
 	if json.Unmarshal(msg, &event) != nil {
 		return
 	}
@@ -145,13 +167,13 @@ func (u *UserDataStream) handleMessage(msg []byte) {
 func (u *UserDataStream) handleOrderUpdate(msg []byte) {
 	var evt struct {
 		Order struct {
-			Symbol       string `json:"s"`
-			OrderID      int64  `json:"i"`
-			Status       string `json:"X"`
-			Side         string `json:"S"`
-			AvgPrice     string `json:"ap"`
-			OrigQty      string `json:"q"`
-			RealizedPnL  string `json:"rp"`
+			Symbol      string `json:"s"`
+			OrderID     int64  `json:"i"`
+			Status      string `json:"X"`
+			Side        string `json:"S"`
+			AvgPrice    string `json:"ap"`
+			OrigQty     string `json:"q"`
+			RealizedPnL string `json:"rp"`
 		} `json:"o"`
 	}
 	if json.Unmarshal(msg, &evt) != nil {
@@ -172,7 +194,7 @@ func (u *UserDataStream) handleOrderUpdate(msg []byte) {
 func (u *UserDataStream) handleAccountUpdate(msg []byte) {
 	var evt struct {
 		Balances []struct {
-			Asset  string `json:"a"`
+			Asset   string `json:"a"`
 			Balance string `json:"wb"`
 		} `json:"a"`
 	}

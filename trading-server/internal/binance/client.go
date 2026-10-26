@@ -339,8 +339,11 @@ type orderRaw struct {
 	ExecutedQty   string `json:"executedQty"`
 	Type          string `json:"type"`
 	Side          string `json:"side"`
+	PositionSide  string `json:"positionSide"`
 	StopPrice     string `json:"stopPrice"`
 	TimeInForce   string `json:"timeInForce"`
+	ReduceOnly    bool   `json:"reduceOnly"`
+	ClosePosition bool   `json:"closePosition"`
 	UpdateTime    int64  `json:"updateTime"`
 }
 
@@ -361,8 +364,11 @@ func (r orderRaw) toOrder() *Order {
 		ExecutedQty:   executedQty,
 		Type:          r.Type,
 		Side:          r.Side,
+		PositionSide:  r.PositionSide,
 		StopPrice:     stopPrice,
 		TimeInForce:   r.TimeInForce,
+		ReduceOnly:    r.ReduceOnly,
+		ClosePosition: r.ClosePosition,
 		UpdateTime:    r.UpdateTime,
 	}
 }
@@ -377,32 +383,52 @@ func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
 	if req.PositionSide != "" {
 		params.Set("positionSide", req.PositionSide)
 	}
-	params.Set("type", req.OrderType)
-	params.Set("quantity", strconv.FormatFloat(req.Quantity, 'f', -1, 64))
-
-	// STOP_MARKET and TAKE_PROFIT_MARKET use Algo endpoint on mainnet; testnet unsupported
-	isConditional := req.OrderType == "STOP_MARKET" || req.OrderType == "TAKE_PROFIT_MARKET" || req.OrderType == "STOP"
-	isTestnet := strings.Contains(c.baseURL, "testnet")
-
-	if isConditional && isTestnet {
-		return nil, fmt.Errorf("条件单(%s)在testnet不可用，请改用 LIMIT/MARKET + reduce_only=true 或设 market.alerts 提醒", req.OrderType)
+	orderType := strings.ToUpper(req.OrderType)
+	params.Set("type", orderType)
+	if req.Quantity > 0 && !req.ClosePosition {
+		params.Set("quantity", strconv.FormatFloat(req.Quantity, 'f', -1, 64))
+	}
+	if req.ClientOrderID != "" {
+		params.Set("newClientOrderId", req.ClientOrderID)
+	}
+	if req.WorkingType != "" {
+		params.Set("workingType", strings.ToUpper(req.WorkingType))
 	}
 
-	path := "/fapi/v1/order"
-	if isConditional && !isTestnet {
-		path = "/fapi/v1/algo/order"
+	// Binance USDⓈ-M futures has no separate "algo" endpoint: conditional
+	// orders (STOP_MARKET / TAKE_PROFIT_MARKET / TRAILING_STOP_MARKET) are
+	// submitted to the standard /fapi/v1/order endpoint with stopPrice.
+	isConditional := orderType == "STOP_MARKET" || orderType == "TAKE_PROFIT_MARKET" ||
+		orderType == "STOP" || orderType == "TAKE_PROFIT" || orderType == "TRAILING_STOP_MARKET"
+
+	if req.ClosePosition {
+		if !isConditional {
+			return nil, fmt.Errorf("closePosition is only valid for conditional order types")
+		}
+		// closePosition cannot be combined with quantity or reduceOnly.
+		params.Set("closePosition", "true")
+	} else if req.ReduceOnly {
+		params.Set("reduceOnly", "true")
 	}
 
-	if req.OrderType == "LIMIT" || req.OrderType == "STOP" {
+	if orderType == "LIMIT" || orderType == "STOP" || orderType == "TAKE_PROFIT" {
 		params.Set("timeInForce", "GTC")
 		params.Set("price", strconv.FormatFloat(req.Price, 'f', -1, 64))
 	}
 	if isConditional {
-		params.Set("stopPrice", strconv.FormatFloat(req.StopPrice, 'f', -1, 64))
-		params.Set("reduceOnly", strconv.FormatBool(req.ReduceOnly))
-	} else if req.ReduceOnly {
-		params.Set("reduceOnly", "true")
+		if orderType == "TRAILING_STOP_MARKET" {
+			if req.ActivationPrice > 0 {
+				params.Set("activationPrice", strconv.FormatFloat(req.ActivationPrice, 'f', -1, 64))
+			}
+			if req.CallbackRate > 0 {
+				params.Set("callbackRate", strconv.FormatFloat(req.CallbackRate, 'f', -1, 64))
+			}
+		} else {
+			params.Set("stopPrice", strconv.FormatFloat(req.StopPrice, 'f', -1, 64))
+		}
 	}
+
+	path := "/fapi/v1/order"
 
 	body, err := c.request(context.Background(), http.MethodPost, path, params, true)
 	if err != nil {
@@ -595,20 +621,26 @@ type oiRaw struct {
 	OpenInterest string `json:"openInterest"`
 }
 
-// GetFundingRate returns the current funding rate for a symbol.
+// GetFundingRate returns the current funding rate and the next funding time.
+// /fapi/v1/fundingRate is a historical endpoint (its latest row can be hours
+// old), so use premiumIndex which carries the current lastFundingRate and
+// nextFundingTime.
 func (c *Client) GetFundingRate(symbol string) (float64, int64, error) {
 	params := url.Values{}
 	params.Set("symbol", symbol)
-	body, err := c.get(context.Background(), "/fapi/v1/fundingRate", params, false)
+	body, err := c.get(context.Background(), "/fapi/v1/premiumIndex", params, false)
 	if err != nil {
 		return 0, 0, err
 	}
-	var raw []fundingRaw
-	if err := json.Unmarshal(body, &raw); err != nil || len(raw) == 0 {
+	var raw struct {
+		LastFundingRate string `json:"lastFundingRate"`
+		NextFundingTime int64  `json:"nextFundingTime"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
 		return 0, 0, fmt.Errorf("parse funding rate: %w", err)
 	}
-	rate, _ := strconv.ParseFloat(raw[0].FundingRate, 64)
-	return rate, raw[0].FundingTime, nil
+	rate, _ := strconv.ParseFloat(raw.LastFundingRate, 64)
+	return rate, raw.NextFundingTime, nil
 }
 
 // GetOpenInterest returns the current open interest for a symbol.
@@ -627,19 +659,100 @@ func (c *Client) GetOpenInterest(symbol string) (float64, error) {
 	return oi, nil
 }
 
+// GetExchangeInfo returns trading rules for every USDⓈ-M futures symbol.
+// These filters (tick size, step size, min notional) must come from the
+// exchange rather than a hardcoded table, especially for altcoins.
+func (c *Client) GetExchangeInfo() (map[string]SymbolInfo, error) {
+	body, err := c.get(context.Background(), "/fapi/v1/exchangeInfo", nil, false)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		Symbols []struct {
+			Symbol            string `json:"symbol"`
+			Status            string `json:"status"`
+			PricePrecision    int    `json:"pricePrecision"`
+			QuantityPrecision int    `json:"quantityPrecision"`
+			Filters           []struct {
+				FilterType  string `json:"filterType"`
+				TickSize    string `json:"tickSize"`
+				StepSize    string `json:"stepSize"`
+				Notional    string `json:"notional"`
+				MinNotional string `json:"minNotional"`
+			} `json:"filters"`
+		} `json:"symbols"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse exchangeInfo: %w", err)
+	}
+
+	out := make(map[string]SymbolInfo, len(raw.Symbols))
+	for _, s := range raw.Symbols {
+		info := SymbolInfo{
+			Symbol:            s.Symbol,
+			Status:            s.Status,
+			PricePrecision:    s.PricePrecision,
+			QuantityPrecision: s.QuantityPrecision,
+		}
+		for _, f := range s.Filters {
+			switch f.FilterType {
+			case "PRICE_FILTER":
+				info.TickSize, _ = strconv.ParseFloat(f.TickSize, 64)
+			case "LOT_SIZE":
+				info.StepSize, _ = strconv.ParseFloat(f.StepSize, 64)
+			case "MIN_NOTIONAL":
+				info.MinNotional, _ = strconv.ParseFloat(f.Notional, 64)
+				if info.MinNotional == 0 {
+					info.MinNotional, _ = strconv.ParseFloat(f.MinNotional, 64)
+				}
+			}
+		}
+		out[s.Symbol] = info
+	}
+	return out, nil
+}
+
+// GetAllPrices returns the latest price for every symbol in one request.
+func (c *Client) GetAllPrices() (map[string]float64, error) {
+	body, err := c.get(context.Background(), "/fapi/v1/ticker/price", nil, false)
+	if err != nil {
+		return nil, err
+	}
+	var raw []tickerPriceRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse all prices: %w", err)
+	}
+	out := make(map[string]float64, len(raw))
+	for _, r := range raw {
+		p, err := strconv.ParseFloat(r.Price, 64)
+		if err == nil {
+			out[r.Symbol] = p
+		}
+	}
+	return out, nil
+}
+
+// CancelAllOpenOrders cancels every open order for a symbol.
+func (c *Client) CancelAllOpenOrders(symbol string) error {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	_, err := c.request(context.Background(), http.MethodDelete, "/fapi/v1/allOpenOrders", params, true)
+	return err
+}
+
 // --- OCO Order ---
 
 type ocoOrderRaw struct {
-	OrderListID    int64      `json:"orderListId"`
-	Orders         []orderRaw `json:"orders"`
-	OrderReports   []orderRaw `json:"orderReports"`
+	OrderListID  int64      `json:"orderListId"`
+	Orders       []orderRaw `json:"orders"`
+	OrderReports []orderRaw `json:"orderReports"`
 }
 
 // OCOOrder represents a One-Cancels-Other order pair.
 type OCOOrder struct {
-	OrderListID int64   `json:"orderListId"`
-	StopOrder   *Order  `json:"stop_order"`
-	LimitOrder  *Order  `json:"limit_order"`
+	OrderListID int64  `json:"orderListId"`
+	StopOrder   *Order `json:"stop_order"`
+	LimitOrder  *Order `json:"limit_order"`
 }
 
 // CreateOCOOrder places an OCO (One-Cancels-Other) order — a take-profit limit
@@ -649,9 +762,9 @@ func (c *Client) CreateOCOOrder(symbol, side string, quantity, price, stopPrice 
 	params.Set("symbol", symbol)
 	params.Set("side", side)
 	params.Set("quantity", strconv.FormatFloat(quantity, 'f', -1, 64))
-	params.Set("price", strconv.FormatFloat(price, 'f', -1, 64))       // take-profit limit
+	params.Set("price", strconv.FormatFloat(price, 'f', -1, 64))         // take-profit limit
 	params.Set("stopPrice", strconv.FormatFloat(stopPrice, 'f', -1, 64)) // stop-loss trigger
-	params.Set("stopLimitPrice", "0") // 0 = stop-market
+	params.Set("stopLimitPrice", "0")                                    // 0 = stop-market
 	params.Set("stopLimitTimeInForce", "GTC")
 
 	body, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/order/oco", params, true)

@@ -19,6 +19,11 @@ type Config struct {
 	MaxPositionPercent float64
 	MaxStopLossPercent float64
 	DailyLossLimit     float64
+
+	// SetupAccount controls whether startup is allowed to change exchange
+	// account settings (position mode, margin type, leverage). Default false:
+	// the server must never mutate the account unless explicitly asked.
+	SetupAccount bool
 }
 
 // Load reads configuration from environment variables.
@@ -75,6 +80,8 @@ func Load() (*Config, error) {
 		dailyLossLimit, _ = strconv.ParseFloat(v, 64)
 	}
 
+	setupAccount := os.Getenv("SETUP_ACCOUNT") == "true"
+
 	return &Config{
 		APIKey:             apiKey,
 		APISecret:          apiSecret,
@@ -85,5 +92,6 @@ func Load() (*Config, error) {
 		MaxPositionPercent: maxPositionPercent,
 		MaxStopLossPercent: maxStopLossPercent,
 		DailyLossLimit:     dailyLossLimit,
+		SetupAccount:       setupAccount,
 	}, nil
 }
