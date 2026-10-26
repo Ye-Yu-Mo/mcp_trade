@@ -242,6 +242,7 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 | `BINANCE_API_SECRET` | 必填 | 币安 API Secret |
 | `API_TOKEN` | 必填 | 前后端/MCP 鉴权 token |
 | `SERVER_PORT` | `8877` | HTTP 端口 |
+| `BIND_ADDR` | `127.0.0.1` | 绑定地址；默认只监听本机，通过 SSH 隧道访问 |
 | `DB_PATH` | `data/trade.duckdb` | DuckDB 路径 |
 | `MARKET_DATA_URL` | `https://fapi.binance.com` | 行情源（保持主网） |
 | `SETUP_ACCOUNT` | `false` | 是否在启动时修改账户设置 |
@@ -267,14 +268,45 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 - **单一进程**：DuckDB 单写者，不要同时启动多个 trading-server。
 - **实盘需要单向持仓**：启动时会检测，检测到双向持仓会拒绝启动；可用 `SETUP_ACCOUNT=true` 初始化。
 
+## VPS 24/7 部署（当前）
+
+交易服务器已部署到常开 VPS，两个 systemd 服务：
+
+| 服务 | 端口 | 模式 | 用途 |
+|---|---|---|---|
+| `mcp-trade` | 8877 | mainnet | 实盘执行；当前空仓，等待策略验证后才使用 |
+| `mcp-trade-paper` | 8878 | paper | 24/7 纸面验证；模拟止损/止盈由 VPS 持续运行 |
+
+两者都只绑定 `127.0.0.1`，通过 SSH 隧道访问：
+
+```bash
+ssh -N -L 8877:127.0.0.1:8877 root@your-vps
+ssh -N -L 8878:127.0.0.1:8878 root@your-vps
+```
+
+项目 `.mcp.json` 同时配置：
+
+- `mcp-trade` → `http://127.0.0.1:8877`（实盘，谨慎）
+- `mcp-trade-paper` → `http://127.0.0.1:8878`（纸面验证，优先使用）
+
+**合盖/离线时**：
+
+- 实盘：交易所侧 Algo STOP/TP 仍然有效；AI 不能开新仓/调止损。
+- 纸面：VPS 上的 paper 实例继续模拟止损/止盈，不会因为本机合盖而停止。
+
 ## 运维
 
 ```bash
 # 健康检查
-curl http://127.0.0.1:8877/health
+curl http://127.0.0.1:8877/health   # 实盘
+curl http://127.0.0.1:8878/health   # 纸面
 
-# 查看服务日志（前台运行时）
-# Ctrl-C 优雅退出，纸面状态会落盘
+# VPS 服务
+systemctl status mcp-trade
+systemctl status mcp-trade-paper
+journalctl -u mcp-trade -n 50
+tail -f /var/log/trade-server.log
+tail -f /var/log/trade-server-paper.log
 
 # 运行测试
 cd trading-server && go test ./...

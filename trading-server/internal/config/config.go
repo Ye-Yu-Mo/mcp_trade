@@ -12,6 +12,7 @@ type Config struct {
 	APISecret  string
 	BaseURL    string
 	ServerPort string
+	BindAddr   string
 	DBPath     string
 	APIToken   string
 
@@ -77,6 +78,10 @@ func Load() (*Config, error) {
 	if serverPort == "" {
 		serverPort = "8877"
 	}
+	bindAddr := os.Getenv("BIND_ADDR")
+	if bindAddr == "" {
+		bindAddr = "127.0.0.1"
+	}
 
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
@@ -129,6 +134,7 @@ func Load() (*Config, error) {
 		APISecret:          apiSecret,
 		BaseURL:            baseURL,
 		ServerPort:         serverPort,
+		BindAddr:           bindAddr,
 		DBPath:             dbPath,
 		APIToken:           apiToken,
 		MaxPositionPercent: maxPositionPercent,

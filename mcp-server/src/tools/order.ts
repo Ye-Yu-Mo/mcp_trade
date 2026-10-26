@@ -196,10 +196,17 @@ export function registerOrderTools(server: any, client: TradingClient) {
           structuredContent: { orders: [] },
         };
       }
-      const rows = orders.map(
-        (o) =>
-          `| #${o.orderId} | ${o.symbol} | ${o.side} | ${o.type} | ${o.origQty} | ${o.stopPrice !== "0" ? "$" + o.stopPrice : o.price} | ${o.status} |`,
-      );
+      const rows = orders.map((o) => {
+        const conditional = /STOP|TAKE_PROFIT|TRAILING/i.test(o.type);
+        const priceLabel = conditional
+          ? o.stopPrice !== "0"
+            ? "$" + o.stopPrice
+            : "—"
+          : o.price !== "0"
+            ? "$" + o.price
+            : "市价";
+        return `| #${o.orderId} | ${o.symbol} | ${o.side} | ${o.type} | ${o.origQty} | ${priceLabel} | ${o.status} |`;
+      });
       const header = "| Order ID | Symbol | Side | Type | Qty | Price/Trigger | Status |";
       const sep = "|---|---|---|---|---|---|---|";
       return {

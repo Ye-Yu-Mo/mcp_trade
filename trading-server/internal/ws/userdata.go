@@ -167,15 +167,22 @@ func (u *UserDataStream) handleMessage(msg []byte) {
 		EventType string `json:"e"`
 	}
 	if json.Unmarshal(msg, &event) != nil {
+		log.Printf("ws userdata: bad message: %.160s", msg)
 		return
 	}
 	switch event.EventType {
 	case "ORDER_TRADE_UPDATE":
+		log.Printf("ws userdata: ORDER_TRADE_UPDATE")
 		u.handleOrderUpdate(msg)
 	case "ALGO_UPDATE":
+		log.Printf("ws userdata: ALGO_UPDATE")
 		u.handleAlgoUpdate(msg)
 	case "ACCOUNT_UPDATE":
 		u.handleAccountUpdate(msg)
+	default:
+		if event.EventType != "" {
+			log.Printf("ws userdata: event %s", event.EventType)
+		}
 	}
 }
 

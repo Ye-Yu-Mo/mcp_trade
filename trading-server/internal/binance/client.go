@@ -286,6 +286,65 @@ func (c *Client) GetPositions() ([]Position, error) {
 	return positions, nil
 }
 
+// UserTrade is one fill from the account trade history.
+type UserTrade struct {
+	Symbol      string
+	Side        string
+	Price       float64
+	Qty         float64
+	RealizedPnl float64
+	Commission  float64
+	Time        int64
+	OrderID     int64
+	Maker       bool
+}
+
+type userTradeRaw struct {
+	Symbol      string `json:"symbol"`
+	Side        string `json:"side"`
+	Price       string `json:"price"`
+	Qty         string `json:"qty"`
+	RealizedPnl string `json:"realizedPnl"`
+	Commission  string `json:"commission"`
+	Time        int64  `json:"time"`
+	OrderID     int64  `json:"orderId"`
+	Maker       bool   `json:"maker"`
+}
+
+// GetUserTrades returns the account's fills for a symbol since startTime (ms).
+func (c *Client) GetUserTrades(symbol string, startTime int64, limit int) ([]UserTrade, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("limit", strconv.Itoa(limit))
+	if startTime > 0 {
+		params.Set("startTime", strconv.FormatInt(startTime, 10))
+	}
+	body, err := c.get(context.Background(), "/fapi/v1/userTrades", params, true)
+	if err != nil {
+		return nil, err
+	}
+	var raw []userTradeRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse user trades: %w", err)
+	}
+	out := make([]UserTrade, 0, len(raw))
+	for _, r := range raw {
+		price, _ := strconv.ParseFloat(r.Price, 64)
+		qty, _ := strconv.ParseFloat(r.Qty, 64)
+		pnl, _ := strconv.ParseFloat(r.RealizedPnl, 64)
+		commission, _ := strconv.ParseFloat(r.Commission, 64)
+		out = append(out, UserTrade{
+			Symbol: r.Symbol, Side: r.Side, Price: price, Qty: qty,
+			RealizedPnl: pnl, Commission: commission, Time: r.Time,
+			OrderID: r.OrderID, Maker: r.Maker,
+		})
+	}
+	return out, nil
+}
+
 // GetOrderBook returns the order book depth for a symbol.
 // limit: 5, 10, 20, 50, 100, 500, 1000. Default 100.
 func (c *Client) GetOrderBook(symbol string, limit int) (*OrderBook, error) {

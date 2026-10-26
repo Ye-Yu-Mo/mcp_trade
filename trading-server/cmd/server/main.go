@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/config"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/paper"
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/reconcile"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/risk"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/store"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
@@ -44,6 +46,7 @@ func main() {
 	var paperBroker *paper.Broker
 	var userStream interface{ Connected() bool }
 	var userData *ws.UserDataStream
+	var reconcileDone chan struct{}
 
 	if cfg.PaperMode {
 		paperBroker, err = paper.New(marketClient, st, cfg.PaperStatePath, cfg.PaperBalance)
@@ -84,6 +87,34 @@ func main() {
 		} else {
 			log.Println("[init] position mode: one-way")
 		}
+
+		// Close trade rows that the exchange already closed while the server
+		// was offline, then keep reconciling in case the user-data stream
+		// misses a stop/TP event.
+		if n, rerr := reconcile.Once(tradeClient, st); rerr != nil {
+			log.Printf("[init] warn: initial reconcile: %v", rerr)
+		} else if n > 0 {
+			log.Printf("[init] reconciled %d stale OPEN trade(s)", n)
+		}
+		reconcileDone = make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-reconcileDone:
+					return
+				case <-ticker.C:
+					if n, err := reconcile.Once(tradeClient, st); n > 0 || err != nil {
+						if err != nil {
+							log.Printf("reconcile: %v", err)
+						} else {
+							log.Printf("reconcile: closed %d trade(s)", n)
+						}
+					}
+				}
+			}
+		}()
 		trader = tradeClient
 
 		// Reconcile trade rows with the exchange so a close that happened while
@@ -157,13 +188,13 @@ func main() {
 		startTime, marketStream, userStream, cfg.PaperMode,
 	)
 
-	srv := &http.Server{Addr: ":" + cfg.ServerPort, Handler: router}
+	srv := &http.Server{Addr: net.JoinHostPort(cfg.BindAddr, cfg.ServerPort), Handler: router}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	go func() {
-		log.Printf("[server] listening on :%s (paper=%v)", cfg.ServerPort, cfg.PaperMode)
+		log.Printf("[server] listening on %s:%s (paper=%v)", cfg.BindAddr, cfg.ServerPort, cfg.PaperMode)
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 			log.Fatalf("[server] %v", err)
 		}
@@ -178,6 +209,9 @@ func main() {
 	marketStream.Stop()
 	if userData != nil {
 		userData.Stop()
+	}
+	if reconcileDone != nil {
+		close(reconcileDone)
 	}
 	if paperBroker != nil {
 		paperBroker.Stop()
