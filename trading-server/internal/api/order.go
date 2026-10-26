@@ -276,6 +276,12 @@ func (h *OrderHandler) evaluate(p orderParams) (orderPreviewResponse, error) {
 			Code:   "RISK_LIVE_MARKET_ONLY",
 			Reason: "live entries must use MARKET; limit entries cannot be protected server-side yet",
 		}
+	case h.pendingEntryCount(p.Symbol) > 0:
+		d = risk.Decision{
+			Passed: false,
+			Code:   "RISK_PENDING_ENTRY",
+			Reason: fmt.Sprintf("a pending entry already exists on %s; cancel it or wait for it to fill", p.Symbol),
+		}
 	case h.positionQty(p.Symbol) > 0:
 		d = risk.Decision{
 			Passed: false,
@@ -581,6 +587,7 @@ func (h *OrderHandler) accountState() (risk.AccountState, error) {
 	}
 
 	equity := wallet + unrealized
+	pendingEntries := h.pendingEntryCount("")
 	daily, weekly := 0.0, 0.0
 	var openTrades []store.TradeRecord
 	if h.store != nil {
@@ -597,6 +604,9 @@ func (h *OrderHandler) accountState() (risk.AccountState, error) {
 	for _, t := range openTrades {
 		openRisk += t.RiskAmount
 	}
+	// Reserved risk for resting entry orders. Their protective stop is a
+	// separate order, so be conservative and reserve the full per-trade budget.
+	openRisk += float64(pendingEntries) * equity * h.risk.Config().RiskPerTradePct
 
 	return risk.AccountState{
 		Equity:        equity,
@@ -604,7 +614,7 @@ func (h *OrderHandler) accountState() (risk.AccountState, error) {
 		Available:     available,
 		DailyPnL:      daily,
 		WeeklyPnL:     weekly,
-		OpenPositions: len(positions),
+		OpenPositions: len(positions) + pendingEntries,
 		OpenRisk:      openRisk,
 	}, nil
 }
@@ -612,6 +622,26 @@ func (h *OrderHandler) accountState() (risk.AccountState, error) {
 func (h *OrderHandler) positionQty(symbol string) float64 {
 	qty, _ := h.positionInfo(symbol)
 	return qty
+}
+
+// pendingEntryCount counts resting orders that could still open a position.
+// Protective orders (reduceOnly/closePosition) are excluded.
+func (h *OrderHandler) pendingEntryCount(symbol string) int {
+	orders, err := h.client.GetOpenOrders(symbol)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, o := range orders {
+		if o.Status != "NEW" && o.Status != "PARTIALLY_FILLED" {
+			continue
+		}
+		if o.ReduceOnly || o.ClosePosition {
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 func (h *OrderHandler) positionInfo(symbol string) (float64, string) {
