@@ -36,6 +36,7 @@ type Config struct {
 	MaxTotalRiskPct float64
 	MaxPositions    int
 	MaxLeverage     float64
+	MaxNotionalPct  float64
 	DailyLossPct    float64
 	WeeklyLossPct   float64
 }
@@ -119,6 +120,7 @@ func Load() (*Config, error) {
 	maxTotalRiskPct := envFloat("MAX_TOTAL_RISK_PCT", 0.03)
 	maxPositions := envInt("MAX_POSITIONS", 2)
 	maxLeverage := envFloat("MAX_LEVERAGE", 5)
+	maxNotionalPct := envFloat("MAX_NOTIONAL_PCT", 1.5)
 	dailyLossPct := envFloat("DAILY_LOSS_PCT", 0.03)
 	weeklyLossPct := envFloat("WEEKLY_LOSS_PCT", 0.08)
 
@@ -141,6 +143,7 @@ func Load() (*Config, error) {
 		MaxTotalRiskPct:    maxTotalRiskPct,
 		MaxPositions:       maxPositions,
 		MaxLeverage:        maxLeverage,
+		MaxNotionalPct:     maxNotionalPct,
 		DailyLossPct:       dailyLossPct,
 		WeeklyLossPct:      weeklyLossPct,
 	}, nil

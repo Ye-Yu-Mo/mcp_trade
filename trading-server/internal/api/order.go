@@ -669,6 +669,15 @@ func (h *OrderHandler) cancelProtective(symbol string) {
 	}
 	for _, o := range orders {
 		if o.ReduceOnly || o.ClosePosition || strings.Contains(o.Type, "STOP") || strings.Contains(o.Type, "TAKE_PROFIT") {
+			if o.IsAlgo {
+				if ac, ok := h.client.(interface {
+					CancelAlgoOrder(symbol string, algoID int64) (*binance.Order, error)
+				}); ok {
+					if _, err := ac.CancelAlgoOrder(symbol, o.OrderID); err == nil {
+						continue
+					}
+				}
+			}
 			h.client.CancelOrder(symbol, o.OrderID)
 		}
 	}

@@ -147,6 +147,7 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 | 总开仓风险 | 权益的 3%（`MAX_TOTAL_RISK_PCT=0.03`） | `RISK_TOTAL_RISK` |
 | 最大持仓数 | 2（`MAX_POSITIONS=2`） | `RISK_MAX_POSITIONS` |
 | 杠杆上限 | 5x（`MAX_LEVERAGE=5`） | `RISK_LEVERAGE` |
+| 单笔名义价值 | ≤ 1.5x 权益（`MAX_NOTIONAL_PCT=1.5`） | `RISK_MAX_NOTIONAL` |
 | 保证金 | 不超过可用余额 | `RISK_MARGIN` |
 | 最小名义价值 | 来自 `exchangeInfo`，不硬编码 | `RISK_MIN_NOTIONAL` |
 | 日亏损 | 权益的 3%（`DAILY_LOSS_PCT=0.03`） | `RISK_DAILY_LOSS` |
@@ -250,11 +251,13 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 | `MAX_TOTAL_RISK_PCT` | `0.03` | 总开仓风险上限 |
 | `MAX_POSITIONS` | `2` | 最大持仓数 |
 | `MAX_LEVERAGE` | `5` | 杠杆上限 |
+| `MAX_NOTIONAL_PCT` | `1.5` | 单笔名义价值上限（权益倍数），限制跳空损失 |
 | `DAILY_LOSS_PCT` | `0.03` | 日亏损熔断 |
 | `WEEKLY_LOSS_PCT` | `0.08` | 周亏损熔断 |
 
 ## 已知限制
 
+- **实盘条件单走 Algo Order API**：Binance 当前已不再接受普通 `/fapi/v1/order` 的 STOP/TAKE_PROFIT 类型，必须使用 `/fapi/v1/algoOrder`（`algoType=CONDITIONAL`）。本系统已适配，并通过用户数据流的 `ALGO_UPDATE` 跟踪触发/成交。
 - **实盘限价开仓暂不支持**：限价单成交前无法安全地由服务端挂保护单，因此实盘开仓必须用 `MARKET`；纸面模式支持限价。
 - **部分平仓后的交易记录**：交易行会保持 `OPEN`，直到仓位完全平掉才写入最终 R/PnL；但日/周亏损闸门使用权益基线，部分亏损会立即计入风控。
 - **OCO 不存在**：Binance USDⓈ-M Futures 没有 OCO；用入场 + 独立止损/止盈实现括号单。
@@ -281,8 +284,9 @@ cd mcp-server && npm run build
 ## 开发路线
 
 - [x] 行情解析修复（bookTicker 卖一价被卖一量覆盖）
-- [x] 条件单走标准 `/fapi/v1/order`
+- [x] 条件单迁移到 Binance Algo Order API（`/fapi/v1/algoOrder`）
 - [x] R 风控 + 强制止损 + 自动保护单
+- [x] 单笔名义价值上限（1.5x 权益，限制跳空损失）
 - [x] 纸面盘 + 持仓级交易日志
 - [x] 前端看板改版
 - [x] 市价单 RESULT 回执 + 成交确认回退

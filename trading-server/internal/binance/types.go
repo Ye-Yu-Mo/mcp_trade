@@ -103,6 +103,7 @@ type Order struct {
 	TimeInForce   string  `json:"timeInForce"`
 	ReduceOnly    bool    `json:"reduceOnly"`
 	ClosePosition bool    `json:"closePosition"`
+	IsAlgo        bool    `json:"isAlgo,omitempty"`
 	UpdateTime    int64   `json:"updateTime"`
 }
 

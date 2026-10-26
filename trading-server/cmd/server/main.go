@@ -116,6 +116,7 @@ func main() {
 		MaxTotalRiskPct: cfg.MaxTotalRiskPct,
 		MaxPositions:    cfg.MaxPositions,
 		MaxLeverage:     cfg.MaxLeverage,
+		MaxNotionalPct:  cfg.MaxNotionalPct,
 		DailyLossPct:    cfg.DailyLossPct,
 		WeeklyLossPct:   cfg.WeeklyLossPct,
 	})

@@ -376,66 +376,53 @@ func (r orderRaw) toOrder() *Order {
 // --- Order methods ---
 
 // CreateOrder places a new order on Binance Futures.
+// Conditional orders (STOP / TAKE_PROFIT / TRAILING_STOP) must use the Algo
+// Order API; the regular order endpoint rejects them with -4120.
 func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
+	orderType := strings.ToUpper(strings.TrimSpace(req.OrderType))
+	isConditional := orderType == "STOP_MARKET" || orderType == "TAKE_PROFIT_MARKET" ||
+		orderType == "STOP" || orderType == "TAKE_PROFIT" || orderType == "TRAILING_STOP_MARKET"
+	if isConditional {
+		return c.createAlgoOrder(req)
+	}
+	if req.ClosePosition {
+		return nil, fmt.Errorf("closePosition is only valid for conditional order types")
+	}
+	if req.Quantity <= 0 {
+		return nil, fmt.Errorf("quantity must be positive")
+	}
+	if orderType == "LIMIT" && req.Price <= 0 {
+		return nil, fmt.Errorf("limit price is required")
+	}
+
 	params := url.Values{}
 	params.Set("symbol", req.Symbol)
-	params.Set("side", req.Side)
+	params.Set("side", strings.ToUpper(req.Side))
 	if req.PositionSide != "" {
-		params.Set("positionSide", req.PositionSide)
+		params.Set("positionSide", strings.ToUpper(req.PositionSide))
 	}
-	orderType := strings.ToUpper(req.OrderType)
 	params.Set("type", orderType)
 	if orderType == "MARKET" {
 		// Futures defaults to ACK, which returns status=NEW and zero fill data
 		// even for a market order. RESULT gives the actual fill.
 		params.Set("newOrderRespType", "RESULT")
 	}
-	if req.Quantity > 0 && !req.ClosePosition {
-		params.Set("quantity", strconv.FormatFloat(req.Quantity, 'f', -1, 64))
-	}
+	params.Set("quantity", strconv.FormatFloat(req.Quantity, 'f', -1, 64))
 	if req.ClientOrderID != "" {
 		params.Set("newClientOrderId", req.ClientOrderID)
 	}
 	if req.WorkingType != "" {
 		params.Set("workingType", strings.ToUpper(req.WorkingType))
 	}
-
-	// Binance USDⓈ-M futures has no separate "algo" endpoint: conditional
-	// orders (STOP_MARKET / TAKE_PROFIT_MARKET / TRAILING_STOP_MARKET) are
-	// submitted to the standard /fapi/v1/order endpoint with stopPrice.
-	isConditional := orderType == "STOP_MARKET" || orderType == "TAKE_PROFIT_MARKET" ||
-		orderType == "STOP" || orderType == "TAKE_PROFIT" || orderType == "TRAILING_STOP_MARKET"
-
-	if req.ClosePosition {
-		if !isConditional {
-			return nil, fmt.Errorf("closePosition is only valid for conditional order types")
-		}
-		// closePosition cannot be combined with quantity or reduceOnly.
-		params.Set("closePosition", "true")
-	} else if req.ReduceOnly {
+	if req.ReduceOnly {
 		params.Set("reduceOnly", "true")
 	}
-
-	if orderType == "LIMIT" || orderType == "STOP" || orderType == "TAKE_PROFIT" {
+	if orderType == "LIMIT" {
 		params.Set("timeInForce", "GTC")
 		params.Set("price", strconv.FormatFloat(req.Price, 'f', -1, 64))
 	}
-	if isConditional {
-		if orderType == "TRAILING_STOP_MARKET" {
-			if req.ActivationPrice > 0 {
-				params.Set("activationPrice", strconv.FormatFloat(req.ActivationPrice, 'f', -1, 64))
-			}
-			if req.CallbackRate > 0 {
-				params.Set("callbackRate", strconv.FormatFloat(req.CallbackRate, 'f', -1, 64))
-			}
-		} else {
-			params.Set("stopPrice", strconv.FormatFloat(req.StopPrice, 'f', -1, 64))
-		}
-	}
 
-	path := "/fapi/v1/order"
-
-	body, err := c.request(context.Background(), http.MethodPost, path, params, true)
+	body, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/order", params, true)
 	if err != nil {
 		return nil, err
 	}
@@ -457,25 +444,241 @@ func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
 	return order, nil
 }
 
-// CancelOrder cancels an active order by ID.
+// --- Algo (conditional) orders ---
+
+type algoOrderRaw struct {
+	AlgoID        int64  `json:"algoId"`
+	ClientAlgoID  string `json:"clientAlgoId"`
+	AlgoType      string `json:"algoType"`
+	OrderType     string `json:"orderType"`
+	Symbol        string `json:"symbol"`
+	Side          string `json:"side"`
+	PositionSide  string `json:"positionSide"`
+	Quantity      string `json:"quantity"`
+	Price         string `json:"price"`
+	TriggerPrice  string `json:"triggerPrice"`
+	WorkingType   string `json:"workingType"`
+	ClosePosition bool   `json:"closePosition"`
+	ReduceOnly    bool   `json:"reduceOnly"`
+	AlgoStatus    string `json:"algoStatus"`
+	Status        string `json:"status"`
+	ExecutedQty   string `json:"executedQty"`
+	AvgPrice      string `json:"avgPrice"`
+	TriggerTime   int64  `json:"triggerTime"`
+	BookTime      int64  `json:"bookTime"`
+	UpdateTime    int64  `json:"updateTime"`
+}
+
+func (r algoOrderRaw) toOrder() *Order {
+	status := r.AlgoStatus
+	if status == "" {
+		status = r.Status
+	}
+	switch status {
+	case "FINISHED":
+		status = "FILLED"
+	case "TRIGGERING", "TRIGGERED":
+		status = "NEW"
+	}
+	qty, _ := strconv.ParseFloat(r.Quantity, 64)
+	price, _ := strconv.ParseFloat(r.Price, 64)
+	trigger, _ := strconv.ParseFloat(r.TriggerPrice, 64)
+	executed, _ := strconv.ParseFloat(r.ExecutedQty, 64)
+	avg, _ := strconv.ParseFloat(r.AvgPrice, 64)
+	update := r.UpdateTime
+	if update == 0 {
+		update = r.BookTime
+	}
+	if update == 0 {
+		update = r.TriggerTime
+	}
+	return &Order{
+		OrderID:       r.AlgoID,
+		Symbol:        r.Symbol,
+		Status:        status,
+		ClientOrderID: r.ClientAlgoID,
+		Price:         price,
+		AvgPrice:      avg,
+		OrigQty:       qty,
+		ExecutedQty:   executed,
+		Type:          r.OrderType,
+		Side:          r.Side,
+		PositionSide:  r.PositionSide,
+		StopPrice:     trigger,
+		ReduceOnly:    r.ReduceOnly,
+		ClosePosition: r.ClosePosition,
+		IsAlgo:        true,
+		UpdateTime:    update,
+	}
+}
+
+func (c *Client) createAlgoOrder(req NewOrderRequest) (*Order, error) {
+	orderType := strings.ToUpper(strings.TrimSpace(req.OrderType))
+	if req.ClosePosition && req.ReduceOnly {
+		return nil, fmt.Errorf("closePosition and reduceOnly are mutually exclusive")
+	}
+	if req.ClosePosition {
+		if orderType != "STOP_MARKET" && orderType != "TAKE_PROFIT_MARKET" {
+			return nil, fmt.Errorf("closePosition is only valid for STOP_MARKET/TAKE_PROFIT_MARKET")
+		}
+	} else if req.Quantity <= 0 {
+		return nil, fmt.Errorf("quantity is required when closePosition is false")
+	}
+	if orderType != "TRAILING_STOP_MARKET" && req.StopPrice <= 0 {
+		return nil, fmt.Errorf("triggerPrice is required for %s", orderType)
+	}
+	if (orderType == "STOP" || orderType == "TAKE_PROFIT") && req.Price <= 0 {
+		return nil, fmt.Errorf("price is required for %s", orderType)
+	}
+
+	params := url.Values{}
+	params.Set("algoType", "CONDITIONAL")
+	params.Set("type", orderType)
+	params.Set("symbol", req.Symbol)
+	params.Set("side", strings.ToUpper(req.Side))
+	positionSide := strings.ToUpper(req.PositionSide)
+	if positionSide == "" {
+		positionSide = "BOTH"
+	}
+	params.Set("positionSide", positionSide)
+
+	if req.ClosePosition {
+		// closePosition cannot be sent with quantity or reduceOnly.
+		params.Set("closePosition", "true")
+	} else {
+		params.Set("quantity", strconv.FormatFloat(req.Quantity, 'f', -1, 64))
+		if req.ReduceOnly {
+			params.Set("reduceOnly", "true")
+		}
+	}
+	if orderType == "TRAILING_STOP_MARKET" {
+		if req.ActivationPrice > 0 {
+			params.Set("activatePrice", strconv.FormatFloat(req.ActivationPrice, 'f', -1, 64))
+		}
+		if req.CallbackRate > 0 {
+			params.Set("callbackRate", strconv.FormatFloat(req.CallbackRate, 'f', -1, 64))
+		}
+	} else {
+		params.Set("triggerPrice", strconv.FormatFloat(req.StopPrice, 'f', -1, 64))
+	}
+	if req.WorkingType != "" {
+		params.Set("workingType", strings.ToUpper(req.WorkingType))
+	}
+	if req.ClientOrderID != "" {
+		params.Set("clientAlgoId", req.ClientOrderID)
+	}
+	if orderType == "STOP" || orderType == "TAKE_PROFIT" {
+		params.Set("price", strconv.FormatFloat(req.Price, 'f', -1, 64))
+		params.Set("timeInForce", "GTC")
+	}
+	params.Set("newOrderRespType", "RESULT")
+
+	body, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/algoOrder", params, true)
+	if err != nil {
+		return nil, err
+	}
+	var raw algoOrderRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse algo order: %w", err)
+	}
+	return raw.toOrder(), nil
+}
+
+// GetAlgoOrder queries one conditional (algo) order.
+func (c *Client) GetAlgoOrder(symbol string, algoID int64) (*Order, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("algoId", strconv.FormatInt(algoID, 10))
+	body, err := c.get(context.Background(), "/fapi/v1/algoOrder", params, true)
+	if err != nil {
+		return nil, err
+	}
+	var raw algoOrderRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse algo order: %w", err)
+	}
+	return raw.toOrder(), nil
+}
+
+// GetOpenAlgoOrders returns open conditional orders for a symbol (or all).
+func (c *Client) GetOpenAlgoOrders(symbol string) ([]Order, error) {
+	params := url.Values{}
+	if symbol != "" {
+		params.Set("symbol", symbol)
+	}
+	body, err := c.get(context.Background(), "/fapi/v1/openAlgoOrders", params, true)
+	if err != nil {
+		return nil, err
+	}
+	var raw []algoOrderRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		var wrapper struct {
+			Orders []algoOrderRaw `json:"orders"`
+		}
+		if err2 := json.Unmarshal(body, &wrapper); err2 != nil {
+			return nil, fmt.Errorf("parse open algo orders: %w", err)
+		}
+		raw = wrapper.Orders
+	}
+	out := make([]Order, 0, len(raw))
+	for _, r := range raw {
+		o := r.toOrder()
+		if o.Status == "NEW" {
+			out = append(out, *o)
+		}
+	}
+	return out, nil
+}
+
+// CancelAlgoOrder cancels a conditional order by algo ID.
+func (c *Client) CancelAlgoOrder(symbol string, algoID int64) (*Order, error) {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	params.Set("algoId", strconv.FormatInt(algoID, 10))
+	body, err := c.request(context.Background(), http.MethodDelete, "/fapi/v1/algoOrder", params, true)
+	if err != nil {
+		return nil, err
+	}
+	var raw algoOrderRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse algo cancel: %w", err)
+	}
+	return raw.toOrder(), nil
+}
+
+// CancelAllAlgoOpenOrders cancels every open conditional order for a symbol.
+func (c *Client) CancelAllAlgoOpenOrders(symbol string) error {
+	params := url.Values{}
+	params.Set("symbol", symbol)
+	_, err := c.request(context.Background(), http.MethodDelete, "/fapi/v1/algoOpenOrders", params, true)
+	return err
+}
+
+// CancelOrder cancels an active order by ID. Algo (conditional) orders use a
+// separate endpoint, so the regular attempt is followed by an algo attempt.
 func (c *Client) CancelOrder(symbol string, orderID int64) (*Order, error) {
 	params := url.Values{}
 	params.Set("symbol", symbol)
 	params.Set("orderId", strconv.FormatInt(orderID, 10))
 
 	body, err := c.request(context.Background(), http.MethodDelete, "/fapi/v1/order", params, true)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		var raw orderRaw
+		if uerr := json.Unmarshal(body, &raw); uerr != nil {
+			return nil, fmt.Errorf("parse cancel: %w", uerr)
+		}
+		return raw.toOrder(), nil
 	}
-
-	var raw orderRaw
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("parse cancel: %w", err)
+	normalErr := err
+	if algo, aerr := c.CancelAlgoOrder(symbol, orderID); aerr == nil {
+		return algo, nil
+	} else {
+		return nil, fmt.Errorf("cancel order %d: regular: %v; algo: %v", orderID, normalErr, aerr)
 	}
-	return raw.toOrder(), nil
 }
 
-// GetOpenOrders returns all open orders for a symbol. Empty string = all symbols.
+// GetOpenOrders returns all open regular and algo orders for a symbol.
+// Empty string = all symbols.
 func (c *Client) GetOpenOrders(symbol string) ([]Order, error) {
 	params := url.Values{}
 	if symbol != "" {
@@ -483,38 +686,51 @@ func (c *Client) GetOpenOrders(symbol string) ([]Order, error) {
 	}
 
 	body, err := c.get(context.Background(), "/fapi/v1/openOrders", params, true)
-	if err != nil {
+	var regular []Order
+	if err == nil {
+		var raw []orderRaw
+		if uerr := json.Unmarshal(body, &raw); uerr != nil {
+			return nil, fmt.Errorf("parse open orders: %w", uerr)
+		}
+		regular = make([]Order, 0, len(raw))
+		for _, r := range raw {
+			regular = append(regular, *r.toOrder())
+		}
+	}
+
+	algo, algoErr := c.GetOpenAlgoOrders(symbol)
+	if err != nil && algoErr != nil {
 		return nil, err
 	}
-
-	var raw []orderRaw
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("parse open orders: %w", err)
+	if err != nil {
+		return algo, nil
 	}
-
-	orders := make([]Order, 0, len(raw))
-	for _, r := range raw {
-		orders = append(orders, *r.toOrder())
+	if algoErr != nil {
+		return regular, nil
 	}
-	return orders, nil
+	return append(regular, algo...), nil
 }
 
-// GetOrder returns details for a specific order.
+// GetOrder returns details for a specific order (regular or algo).
 func (c *Client) GetOrder(symbol string, orderID int64) (*Order, error) {
 	params := url.Values{}
 	params.Set("symbol", symbol)
 	params.Set("orderId", strconv.FormatInt(orderID, 10))
 
 	body, err := c.get(context.Background(), "/fapi/v1/order", params, true)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		var raw orderRaw
+		if uerr := json.Unmarshal(body, &raw); uerr != nil {
+			return nil, fmt.Errorf("parse order: %w", uerr)
+		}
+		return raw.toOrder(), nil
 	}
-
-	var raw orderRaw
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("parse order: %w", err)
+	normalErr := err
+	if algo, aerr := c.GetAlgoOrder(symbol, orderID); aerr == nil {
+		return algo, nil
+	} else {
+		return nil, fmt.Errorf("get order %d: regular: %v; algo: %v", orderID, normalErr, aerr)
 	}
-	return raw.toOrder(), nil
 }
 
 // --- Account setup ---
@@ -766,8 +982,12 @@ func (c *Client) GetAllPrices() (map[string]float64, error) {
 func (c *Client) CancelAllOpenOrders(symbol string) error {
 	params := url.Values{}
 	params.Set("symbol", symbol)
-	_, err := c.request(context.Background(), http.MethodDelete, "/fapi/v1/allOpenOrders", params, true)
-	return err
+	_, normalErr := c.request(context.Background(), http.MethodDelete, "/fapi/v1/allOpenOrders", params, true)
+	algoErr := c.CancelAllAlgoOpenOrders(symbol)
+	if normalErr != nil && algoErr != nil {
+		return fmt.Errorf("cancel all: regular: %v; algo: %v", normalErr, algoErr)
+	}
+	return nil
 }
 
 // --- OCO Order ---

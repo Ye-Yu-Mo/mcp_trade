@@ -21,6 +21,7 @@ type ManagerConfig struct {
 	MaxTotalRiskPct    float64 // max sum of open risk (0.03 = 3%)
 	MaxPositions       int     // max concurrent positions
 	MaxLeverage        float64 // cap on order leverage
+	MaxNotionalPct     float64 // max notional as a multiple of equity (1.5 = 1.5x)
 	DailyLossPct       float64 // stop new entries after this loss (0.03 = 3%)
 	WeeklyLossPct      float64 // trailing 7-day loss stop (0.08 = 8%)
 	MinNotionalDefault float64
@@ -45,6 +46,9 @@ func NewManager(cfg ManagerConfig) *Manager {
 	}
 	if cfg.MaxLeverage <= 0 {
 		cfg.MaxLeverage = 5
+	}
+	if cfg.MaxNotionalPct <= 0 {
+		cfg.MaxNotionalPct = 1.5
 	}
 	if cfg.DailyLossPct <= 0 {
 		cfg.DailyLossPct = 0.03
@@ -214,6 +218,16 @@ func (m *Manager) CheckEntry(acc AccountState, in OrderIntent) Decision {
 		return reject("RISK_MIN_NOTIONAL",
 			"notional %.2f < min %.2f USDT; at least %.8f %s is required",
 			notional, minNotional, minQty, in.Symbol)
+	}
+
+	// A gap or flash crash can fill a stop far beyond its trigger. Cap the
+	// notional so the worst-case gap loss stays proportional to equity.
+	maxNotional := acc.Equity * m.cfg.MaxNotionalPct
+	if notional > maxNotional+1e-9 {
+		maxQty := m.RoundQuantity(in.Symbol, maxNotional/entry)
+		return reject("RISK_MAX_NOTIONAL",
+			"notional %.2f > max %.2f USDT (%.2fx equity); max qty %.8f",
+			notional, maxNotional, m.cfg.MaxNotionalPct, maxQty)
 	}
 
 	leverage := in.Leverage

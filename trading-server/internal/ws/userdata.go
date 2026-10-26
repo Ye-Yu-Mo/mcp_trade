@@ -172,6 +172,8 @@ func (u *UserDataStream) handleMessage(msg []byte) {
 	switch event.EventType {
 	case "ORDER_TRADE_UPDATE":
 		u.handleOrderUpdate(msg)
+	case "ALGO_UPDATE":
+		u.handleAlgoUpdate(msg)
 	case "ACCOUNT_UPDATE":
 		u.handleAccountUpdate(msg)
 	}
@@ -221,18 +223,21 @@ func (u *UserDataStream) handleOrderUpdate(msg []byte) {
 	// Only close the position-level trade when the position is actually flat;
 	// a partial reduce leaves the trade OPEN.
 	positions, err := u.client.GetPositions()
-	if err == nil {
-		var qty float64
-		for _, p := range positions {
-			if p.Symbol == evt.Order.Symbol {
-				qty += p.Quantity
-			}
+	if err != nil {
+		log.Printf("ws userdata: positions check failed for %s: %v; leaving trade open",
+			evt.Order.Symbol, err)
+		return
+	}
+	var qty float64
+	for _, p := range positions {
+		if p.Symbol == evt.Order.Symbol {
+			qty += p.Quantity
 		}
-		if qty > 1e-9 {
-			log.Printf("ws userdata: partial reduce on %s (%.8f left); trade %d stays OPEN",
-				evt.Order.Symbol, qty, trade.ID)
-			return
-		}
+	}
+	if qty > 1e-9 {
+		log.Printf("ws userdata: partial reduce on %s (%.8f left); trade %d stays OPEN",
+			evt.Order.Symbol, qty, trade.ID)
+		return
 	}
 
 	pnl, _ := strconv.ParseFloat(evt.Order.RealizedPnL, 64)
@@ -257,6 +262,98 @@ func (u *UserDataStream) handleOrderUpdate(msg []byte) {
 	}
 	log.Printf("ws userdata: closed trade %d %s pnl=%.4f (%.2fR) reason=%s",
 		trade.ID, evt.Order.Symbol, netPnL, rMultiple, reason)
+}
+
+func (u *UserDataStream) handleAlgoUpdate(msg []byte) {
+	var evt struct {
+		Algo struct {
+			ClientAlgoID    string `json:"caid"`
+			AlgoID          int64  `json:"aid"`
+			AlgoType        string `json:"at"`
+			OrderType       string `json:"o"`
+			Symbol          string `json:"s"`
+			Side            string `json:"S"`
+			PositionSide    string `json:"ps"`
+			Status          string `json:"X"`
+			ClosePosition   bool   `json:"cp"`
+			ReduceOnly      bool   `json:"R"`
+			MatchingOrderID string `json:"ai"`
+			AvgPrice        string `json:"ap"`
+			ExecutedQty     string `json:"aq"`
+		} `json:"o"`
+	}
+	if json.Unmarshal(msg, &evt) != nil {
+		return
+	}
+	if evt.Algo.Status != "FINISHED" {
+		return
+	}
+	if !evt.Algo.ClosePosition && !evt.Algo.ReduceOnly {
+		return
+	}
+	executed, _ := strconv.ParseFloat(evt.Algo.ExecutedQty, 64)
+	if executed <= 0 {
+		return
+	}
+
+	trade, err := u.store.FindOpenTradeBySymbol(evt.Algo.Symbol)
+	if err != nil {
+		log.Printf("ws userdata: ALGO find trade %s: %v", evt.Algo.Symbol, err)
+		return
+	}
+	if trade == nil {
+		// The matching-engine ORDER_TRADE_UPDATE may have closed it already.
+		return
+	}
+
+	positions, err := u.client.GetPositions()
+	if err != nil {
+		log.Printf("ws userdata: ALGO positions check %s: %v; leaving trade open", evt.Algo.Symbol, err)
+		return
+	}
+	var remaining float64
+	for _, p := range positions {
+		if p.Symbol == evt.Algo.Symbol {
+			remaining += p.Quantity
+		}
+	}
+	if remaining > 1e-9 {
+		log.Printf("ws userdata: ALGO partial close %s (%.8f left); trade %d stays OPEN",
+			evt.Algo.Symbol, remaining, trade.ID)
+		return
+	}
+
+	avgPrice, _ := strconv.ParseFloat(evt.Algo.AvgPrice, 64)
+	if avgPrice <= 0 {
+		log.Printf("ws userdata: ALGO finished without avg price for %s", evt.Algo.Symbol)
+		return
+	}
+	var gross float64
+	if trade.Side == "LONG" {
+		gross = (avgPrice - trade.Price) * executed
+	} else {
+		gross = (trade.Price - avgPrice) * executed
+	}
+	// Best-effort fee estimate (taker on both sides); the matching-engine
+	// ORDER_TRADE_UPDATE path is more precise when it arrives first.
+	fees := (trade.Price + avgPrice) * executed * 0.0005
+	net := gross - fees
+	rMultiple := 0.0
+	if trade.RiskAmount > 0 {
+		rMultiple = net / trade.RiskAmount
+	}
+	reason := "ALGO"
+	if strings.Contains(evt.Algo.OrderType, "TAKE_PROFIT") {
+		reason = "TAKE_PROFIT"
+	} else if strings.Contains(evt.Algo.OrderType, "STOP") {
+		reason = "STOP"
+	}
+	if err := u.store.CloseTrade(trade.ID, avgPrice, net, fees, rMultiple, reason); err != nil {
+		log.Printf("ws userdata: ALGO close trade %d: %v", trade.ID, err)
+		return
+	}
+	log.Printf("ws userdata: ALGO closed trade %d %s pnl=%.4f (%.2fR) reason=%s",
+		trade.ID, evt.Algo.Symbol, net, rMultiple, reason)
 }
 
 func (u *UserDataStream) handleAccountUpdate(msg []byte) {

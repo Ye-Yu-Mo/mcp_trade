@@ -168,6 +168,20 @@ func TestEntryLeverageCap(t *testing.T) {
 	}
 }
 
+func TestEntryMaxNotional(t *testing.T) {
+	m := testManager()
+	// 1.0 BTC at 65000 = 65000 notional, well above 1.5x equity (15000).
+	// Risk is only 100 USDT (1%) thanks to the tight 100 USDT stop, so the
+	// notional cap must reject it before the risk check.
+	d := m.CheckEntry(AccountState{Equity: 10000, Available: 10000}, OrderIntent{
+		Symbol: "BTCUSDT", Side: "BUY", Type: "MARKET", Quantity: 1.0,
+		Price: 65000, StopPrice: 64900, Leverage: 5,
+	})
+	if d.Passed || d.Code != "RISK_MAX_NOTIONAL" {
+		t.Fatalf("expected RISK_MAX_NOTIONAL, got passed=%v code=%s", d.Passed, d.Code)
+	}
+}
+
 func TestEntryMarginCheck(t *testing.T) {
 	m := testManager()
 	// 0.01 BTC * 65000 = 650 notional; at 5x margin = 130 > available 100.
