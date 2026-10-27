@@ -1,14 +1,24 @@
 import type { Kline, Ticker, OrderBook, Balance, Position, Order, OrderPreview, BracketResult, TradeRecord, PerformanceStats, JournalEntry } from "./types.js";
 
+// A dead keep-alive socket (e.g. the SSH tunnel restarted underneath us) can
+// make fetch() hang for many minutes instead of failing. Every request gets a
+// hard deadline so a broken link surfaces as an error the agent can act on.
+const REQUEST_TIMEOUT_MS = 15_000;
+
 export class TradingClient {
   constructor(
     private baseUrl: string,
     private token: string,
   ) {}
 
+  private signal(): AbortSignal {
+    return AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  }
+
   private async get<T>(path: string): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       headers: { Authorization: `Bearer ${this.token}` },
+      signal: this.signal(),
     });
     const body = await res.json();
     if (!res.ok) {
@@ -26,6 +36,7 @@ export class TradingClient {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: body.toString(),
+      signal: this.signal(),
     });
     const json = await res.json();
     if (!res.ok) {
@@ -39,6 +50,7 @@ export class TradingClient {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${this.token}` },
+      signal: this.signal(),
     });
     const body = await res.json();
     if (!res.ok) {
