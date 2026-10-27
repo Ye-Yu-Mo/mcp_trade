@@ -93,6 +93,7 @@ func NewRouter(marketData binance.Trader, trader binance.Trader, apiToken string
 			r.Get("/journal", trade.HandleJournalList)
 			r.Get("/performance", trade.HandlePerformance)
 			r.Get("/exchange", trade.HandleExchangeIncome)
+			r.Get("/fills", trade.HandleExchangeFills)
 		})
 	})
 

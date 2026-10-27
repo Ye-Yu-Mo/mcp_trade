@@ -104,6 +104,42 @@ func (h *TradeHandler) HandleExchangeIncome(w http.ResponseWriter, r *http.Reque
 	JSON(w, http.StatusOK, records)
 }
 
+// HandleExchangeFills handles GET /api/v1/trade/fills — raw fills for one
+// symbol, straight from the venue.
+func (h *TradeHandler) HandleExchangeFills(w http.ResponseWriter, r *http.Request) {
+	if h.paper {
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "paper mode has no exchange fills")
+		return
+	}
+	getter, ok := h.client.(interface {
+		GetUserTrades(symbol string, startTime int64, limit int) ([]binance.UserTrade, error)
+	})
+	if !ok {
+		Error(w, http.StatusInternalServerError, CodeNoCache, "exchange client does not expose fills")
+		return
+	}
+	q := r.URL.Query()
+	symbol := q.Get("symbol")
+	if symbol == "" {
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol is required")
+		return
+	}
+	startTime, _ := strconv.ParseInt(q.Get("start_time"), 10, 64)
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	fills, err := getter.GetUserTrades(symbol, startTime, limit)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
+		return
+	}
+	if fills == nil {
+		fills = []binance.UserTrade{}
+	}
+	JSON(w, http.StatusOK, fills)
+}
+
 // HandlePerformance handles GET /api/v1/trade/performance
 func (h *TradeHandler) HandlePerformance(w http.ResponseWriter, r *http.Request) {
 	perf, err := h.store.GetPerformance()
