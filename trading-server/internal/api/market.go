@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/ws"
@@ -15,6 +16,7 @@ type MarketHandler struct {
 	client     binance.Trader
 	cache      *ws.MarketCache
 	alertStore *ws.AlertStore
+	liqStore   *ws.LiquidationStore
 }
 
 // NewMarketHandler creates a MarketHandler.
@@ -129,6 +131,89 @@ func (h *MarketHandler) HandleWatch(w http.ResponseWriter, r *http.Request) {
 func (h *MarketHandler) HandleCalendar(w http.ResponseWriter, _ *http.Request) {
 	events := getUpcomingEvents()
 	JSON(w, http.StatusOK, events)
+}
+
+// HandleOIHistory handles GET /api/v1/market/oi_history
+func (h *MarketHandler) HandleOIHistory(w http.ResponseWriter, r *http.Request) {
+	symbol := strings.ToUpper(r.URL.Query().Get("symbol"))
+	if symbol == "" {
+		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol is required")
+		return
+	}
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "15m"
+	}
+	switch period {
+	case "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d":
+	default:
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "period must be one of 5m,15m,30m,1h,2h,4h,6h,12h,1d")
+		return
+	}
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 || n > 500 {
+			Error(w, http.StatusBadRequest, CodeInvalidParam, "limit must be 1-500")
+			return
+		}
+		limit = n
+	}
+
+	getter, ok := h.client.(interface {
+		GetOpenInterestHistory(symbol, period string, limit int) ([]binance.OpenInterestPoint, error)
+	})
+	if !ok {
+		Error(w, http.StatusInternalServerError, CodeNoCache, "client does not expose open interest history")
+		return
+	}
+	points, err := getter.GetOpenInterestHistory(symbol, period, limit)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
+		return
+	}
+	if points == nil {
+		points = []binance.OpenInterestPoint{}
+	}
+	JSON(w, http.StatusOK, points)
+}
+
+// HandleLiquidations handles GET /api/v1/market/liquidations — forced orders
+// from the all-market stream. summary=true aggregates per symbol instead.
+func (h *MarketHandler) HandleLiquidations(w http.ResponseWriter, r *http.Request) {
+	if h.liqStore == nil {
+		Error(w, http.StatusInternalServerError, CodeNoCache, "liquidation stream not initialized")
+		return
+	}
+	q := r.URL.Query()
+	minutes := 60
+	if v := q.Get("minutes"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 || n > 1440 {
+			Error(w, http.StatusBadRequest, CodeInvalidParam, "minutes must be 1-1440")
+			return
+		}
+		minutes = n
+	}
+
+	if q.Get("summary") == "true" || q.Get("summary") == "1" {
+		JSON(w, http.StatusOK, h.liqStore.Summary(time.Duration(minutes)*time.Minute))
+		return
+	}
+
+	symbol := strings.ToUpper(q.Get("symbol"))
+	minNotional, _ := strconv.ParseFloat(q.Get("min_notional"), 64)
+	limit := 50
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 || n > 500 {
+			Error(w, http.StatusBadRequest, CodeInvalidParam, "limit must be 1-500")
+			return
+		}
+		limit = n
+	}
+	since := time.Now().Add(-time.Duration(minutes) * time.Minute).UnixMilli()
+	JSON(w, http.StatusOK, h.liqStore.List(symbol, minNotional, since, limit))
 }
 
 // HandleSetAlert handles POST /api/v1/market/alert — creates a price alert.

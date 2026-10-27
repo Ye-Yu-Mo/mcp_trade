@@ -176,13 +176,15 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 ### 行情 `market.*`
 | 工具 | 说明 |
 |---|---|
-| `market.klines` | K 线（支持多币种/多周期） |
+| `market.klines` | K 线（支持多币种/多周期，含 taker 买入占比与 delta） |
 | `market.ticker` / `market.price` | 最新价 |
 | `market.orderbook` | 订单簿 |
 | `market.watch` | 缓存快照 + 已触发提醒 |
 | `market.scanner` | 24h 成交量扫描 |
 | `market.funding` | 当前资金费率（`premiumIndex`） |
-| `market.oi` | 未平仓合约 |
+| `market.oi` | 未平仓合约（当前值） |
+| `market.oi_history` | OI 历史序列——判断回撤是洗盘还是派发 |
+| `market.liquidations` | 强平记录/按币种汇总——止损堆积区 |
 | `market.atr` | ATR |
 | `market.candle_info` | 当前 K 线剩余时间 |
 | `market.alerts` | 设置/查询/删除价格提醒 |
@@ -228,6 +230,8 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 | GET | `/api/v1/market/scanner` | 市场扫描 |
 | GET | `/api/v1/market/funding` | 资金费率 |
 | GET | `/api/v1/market/oi` | 未平仓合约 |
+| GET | `/api/v1/market/oi_history` | OI 历史（`/futures/data/openInterestHist`） |
+| GET | `/api/v1/market/liquidations` | 强平记录（`!forceOrder@arr`，支持 summary） |
 | GET | `/api/v1/market/atr` | ATR |
 | GET | `/api/v1/market/candle_info` | K 线时间 |
 | GET | `/api/v1/market/calendar` | 经济日历 |
@@ -276,6 +280,7 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 - **OCO 不存在**：Binance USDⓈ-M Futures 没有 OCO；用入场 + 独立止损/止盈实现括号单。
 - **资金费率未计入纸面盈亏**。
 - **经济日历是静态近似**：只包含未来 30 天的 NFP/CPI/FOMC 等近似日期，不应当作精确事件时间。
+- **强平数据依赖 WS 流**：`!forceOrder@arr` 只保留进程内存里的最近 2000 条，重启即清空；REST 侧没有历史强平接口。
 - **提醒不主动推送**：服务端每 3 秒检测，Claude 需要调用 `market.monitor` / `market.alerts` 才能看到；不运行会话时不会有 AI 决策。
 - **单一进程**：DuckDB 单写者，不要同时启动多个 trading-server。
 - **实盘需要单向持仓**：启动时会检测，检测到双向持仓会拒绝启动；可用 `SETUP_ACCOUNT=true` 初始化。

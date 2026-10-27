@@ -27,11 +27,18 @@ type MarketStream struct {
 	client    MarketClient
 	connected atomic.Bool
 	done      chan struct{}
+	liqs      *LiquidationStore
 }
 
 func NewMarketStream(baseURL string, cache *MarketCache, symbols []string, client MarketClient) *MarketStream {
-	return &MarketStream{baseURL: baseURL, cache: cache, symbols: symbols, client: client, done: make(chan struct{})}
+	return &MarketStream{
+		baseURL: baseURL, cache: cache, symbols: symbols, client: client,
+		done: make(chan struct{}), liqs: NewLiquidationStore(2000),
+	}
 }
+
+// Liquidations exposes the shared all-market liquidation store.
+func (m *MarketStream) Liquidations() *LiquidationStore { return m.liqs }
 
 func (m *MarketStream) Connected() bool { return m.connected.Load() }
 
@@ -61,6 +68,8 @@ func (m *MarketStream) runWS() {
 			s := strings.ToLower(sym)
 			streams = append(streams, s+"@bookTicker", s+"@kline_1h", s+"@depth20@100ms")
 		}
+		// All-market liquidations: no symbol prefix, one shared firehose.
+		streams = append(streams, "!forceOrder@arr")
 		wsURL := wsHost + "?streams=" + strings.Join(streams, "/")
 
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -157,6 +166,10 @@ func (m *MarketStream) runRESTPoll() {
 // --- Event parsing ---
 
 func (m *MarketStream) parseEvent(streamName string, data json.RawMessage) {
+	if strings.Contains(streamName, "forceOrder") {
+		m.parseForceOrder(data)
+		return
+	}
 	symbol := extractSymbol(streamName)
 	switch {
 	case strings.Contains(streamName, "@bookTicker"):
@@ -191,6 +204,8 @@ func (m *MarketStream) parseEvent(streamName string, data json.RawMessage) {
 				Low       string `json:"l"`
 				Close     string `json:"c"`
 				Volume    string `json:"v"`
+				Trades    int64  `json:"n"`
+				BuyVolume string `json:"V"`
 			} `json:"k"`
 		}
 		if json.Unmarshal(data, &evt) == nil {
@@ -203,9 +218,10 @@ func (m *MarketStream) parseEvent(streamName string, data json.RawMessage) {
 			if idx := strings.LastIndex(streamName, "_"); idx > 0 {
 				interval = streamName[idx+1:]
 			}
+			buy, _ := strconv.ParseFloat(evt.Kline.BuyVolume, 64)
 			m.cache.SetKline(symbol, interval, binance.Kline{
 				OpenTime: evt.Kline.StartTime, Open: o, High: h, Low: l, Close: c, Volume: v,
-				CloseTime: evt.Kline.CloseTime,
+				CloseTime: evt.Kline.CloseTime, Trades: evt.Kline.Trades, TakerBuyVolume: buy,
 			})
 			m.cache.SetPrice(symbol, c)
 		}
@@ -229,6 +245,38 @@ func (m *MarketStream) parseEvent(streamName string, data json.RawMessage) {
 			m.cache.SetOrderBook(symbol, binance.OrderBook{Symbol: symbol, Bids: parse(evt.Bids), Asks: parse(evt.Asks)})
 		}
 	}
+}
+
+// parseForceOrder handles !forceOrder@arr entries. Side SELL = a long was
+// liquidated; BUY = a short was.
+func (m *MarketStream) parseForceOrder(data json.RawMessage) {
+	var evt struct {
+		Order struct {
+			Symbol   string `json:"s"`
+			Side     string `json:"S"`
+			Price    string `json:"p"`
+			AvgPrice string `json:"ap"`
+			Qty      string `json:"z"`
+			Time     int64  `json:"T"`
+		} `json:"o"`
+	}
+	if json.Unmarshal(data, &evt) != nil || evt.Order.Symbol == "" {
+		return
+	}
+	price, _ := strconv.ParseFloat(evt.Order.Price, 64)
+	avg, _ := strconv.ParseFloat(evt.Order.AvgPrice, 64)
+	qty, _ := strconv.ParseFloat(evt.Order.Qty, 64)
+	if avg > 0 {
+		price = avg
+	}
+	ts := evt.Order.Time
+	if ts == 0 {
+		ts = time.Now().UnixMilli()
+	}
+	m.liqs.Add(Liquidation{
+		Time: ts, Symbol: evt.Order.Symbol, Side: strings.ToUpper(evt.Order.Side),
+		Price: price, AvgPrice: avg, Qty: qty, Notional: price * qty,
+	})
 }
 
 func extractSymbol(streamName string) string {

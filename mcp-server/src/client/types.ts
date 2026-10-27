@@ -8,6 +8,10 @@ export interface Kline {
   Close: number;
   Volume: number;
   CloseTime: number;
+  QuoteVolume?: number;
+  Trades?: number;
+  TakerBuyVolume?: number;
+  TakerBuyQuoteVolume?: number;
 }
 
 export interface Ticker {

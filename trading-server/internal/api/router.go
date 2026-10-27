@@ -53,6 +53,7 @@ func NewRouter(marketData binance.Trader, trader binance.Trader, apiToken string
 		market := NewMarketHandler(marketData)
 		market.cache = cache
 		market.alertStore = alertStore
+		market.liqStore = marketStream.Liquidations()
 		account := NewAccountHandler(trader)
 		account.cache = cache
 		order := NewOrderHandler(trader, riskMgr, st, paperMode)
@@ -65,6 +66,8 @@ func NewRouter(marketData binance.Trader, trader binance.Trader, apiToken string
 			r.Get("/scanner", market.HandleScanner)
 			r.Get("/funding", market.HandleFunding)
 			r.Get("/oi", market.HandleOI)
+			r.Get("/oi_history", market.HandleOIHistory)
+			r.Get("/liquidations", market.HandleLiquidations)
 			r.Get("/atr", market.HandleATR)
 			r.Get("/candle_info", market.HandleCandleInfo)
 			r.Get("/calendar", market.HandleCalendar)

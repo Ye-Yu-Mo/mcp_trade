@@ -4,11 +4,20 @@ import type { Kline } from "../client/types.js";
 
 function formatKlines(klines: Kline[]): string {
   if (klines.length === 0) return "No kline data.";
-  const header = "| OpenTime | Open | High | Low | Close | Volume |";
-  const sep = "|----------|------|------|-----|-------|--------|";
+  const header = "| OpenTime | Open | High | Low | Close | Volume | Buy% | Delta |";
+  const sep = "|----------|------|------|-----|-------|--------|------|-------|";
   const rows = klines.map((k) => {
     const time = new Date(k.OpenTime).toISOString().replace("T", " ").slice(0, 19);
-    return `| ${time} | ${k.Open} | ${k.High} | ${k.Low} | ${k.Close} | ${k.Volume.toFixed(4)} |`;
+    // Buy% = share of volume that lifted the ask. >55% on an up candle means
+    // real buyers; <45% on an up candle means the move was short covering.
+    const buyVol = k.TakerBuyVolume ?? NaN;
+    const buyPct = k.Volume > 0 && Number.isFinite(buyVol) ? (buyVol / k.Volume) * 100 : NaN;
+    const delta = k.Volume > 0 && Number.isFinite(buyVol) ? 2 * buyVol - k.Volume : NaN;
+    const buyStr = Number.isFinite(buyPct) ? buyPct.toFixed(1) + "%" : "-";
+    const deltaStr = Number.isFinite(delta)
+      ? (delta >= 0 ? "+" : "") + delta.toFixed(2)
+      : "-";
+    return `| ${time} | ${k.Open} | ${k.High} | ${k.Low} | ${k.Close} | ${k.Volume.toFixed(4)} | ${buyStr} | ${deltaStr} |`;
   });
   return [header, sep, ...rows].join("\n");
 }
@@ -287,6 +296,98 @@ export function registerMarketTools(server: any, client: TradingClient) {
       return {
         content: [{ type: "text" as const, text: `${oi.symbol} OI: ${formatted} (base asset units)` }],
         structuredContent: oi,
+      };
+    },
+  );
+
+  // --- market.oi_history ---
+  server.registerTool(
+    "market.oi_history",
+    {
+      description:
+        "获取未平仓合约（OI）历史序列。判断回撤质量的核心工具：" +
+        "价格回落但 OI 下降 = 多头在离场、洗盘（健康，可找机会买）；" +
+        "价格回落但 OI 上升 = 空头进场/多头死扛（趋势可能继续，别接飞刀）。",
+      inputSchema: {
+        symbol: z.string().describe("交易对，如 BTCUSDT"),
+        period: z.string().default("15m").describe("周期：5m,15m,30m,1h,2h,4h,6h,12h,1d"),
+        limit: z.number().default(24).describe("返回数量，默认 24，最大 500（币安只保留 30 天）"),
+      },
+    },
+    async (args: { symbol: string; period?: string; limit?: number }) => {
+      const points = await client.getOIHistory(args.symbol, args.period ?? "15m", args.limit ?? 24);
+      if (points.length === 0) {
+        return { content: [{ type: "text" as const, text: "No OI history." }], structuredContent: { points: [] } };
+      }
+      const first = points[0];
+      const last = points[points.length - 1];
+      const chg = first.open_interest > 0 ? ((last.open_interest - first.open_interest) / first.open_interest) * 100 : 0;
+      const fmt = (v: number) =>
+        v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v.toFixed(0);
+      const header = "| Time | OI | OI Value ($) |";
+      const rows = points.map((p: any) => {
+        const t = new Date(p.time).toISOString().replace("T", " ").slice(0, 16);
+        return `| ${t} | ${fmt(p.open_interest)} | ${fmt(p.open_interest_value)} |`;
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `### ${args.symbol} OI ${args.period ?? "15m"} — ${chg >= 0 ? "+" : ""}${chg.toFixed(2)}% over ${points.length} buckets
+
+` +
+              [header, "|---|---|---|", ...rows].join("\n"),
+          },
+        ],
+        structuredContent: { change_pct: chg, points },
+      };
+    },
+  );
+
+  // --- market.liquidations ---
+  server.registerTool(
+    "market.liquidations",
+    {
+      description:
+        "查询最近的强制平仓（爆仓）记录。side=SELL 表示多头被强平，BUY 表示空头被强平。" +
+        "一方集中爆仓的位置往往是止损堆积区，价格容易被插针扫到。summary=true 时按币种汇总。",
+      inputSchema: {
+        symbol: z.string().optional().describe("交易对，留空查全市场"),
+        minutes: z.number().default(60).describe("回看分钟数，默认 60"),
+        limit: z.number().default(30).describe("返回条数"),
+        min_notional: z.number().optional().describe("最小名义价值（USDT）过滤，建议 1000"),
+        summary: z.boolean().default(false).describe("true = 按币种汇总（多空爆仓笔数与金额）"),
+      },
+    },
+    async (args: { symbol?: string; minutes?: number; limit?: number; min_notional?: number; summary?: boolean }) => {
+      const rows = await client.getLiquidations({
+        symbol: args.symbol,
+        minutes: args.minutes ?? 60,
+        limit: args.limit ?? 30,
+        minNotional: args.min_notional,
+        summary: args.summary,
+      });
+      if (rows.length === 0) {
+        return { content: [{ type: "text" as const, text: "No liquidations in the window." }], structuredContent: { liquidations: [] } };
+      }
+      if (args.summary) {
+        const header = "| Symbol | Long liqs | Long $ | Short liqs | Short $ |";
+        const lines = rows.map((r: any) =>
+          `| ${r.symbol} | ${r.long_liquidations} | ${r.long_notional.toFixed(0)} | ${r.short_liquidations} | ${r.short_notional.toFixed(0)} |`,
+        );
+        return {
+          content: [{ type: "text" as const, text: [header, "|---|---|---|---|---|", ...lines].join("\n") }],
+          structuredContent: { summary: rows },
+        };
+      }
+      const header = "| Time | Symbol | Side | Price | Notional $ |";
+      const lines = rows.map((r: any) => {
+        const t = new Date(r.time).toISOString().replace("T", " ").slice(0, 16);
+        return `| ${t} | ${r.symbol} | ${r.side} | ${r.price} | ${r.notional.toFixed(0)} |`;
+      });
+      return {
+        content: [{ type: "text" as const, text: [header, "|---|---|---|---|---|", ...lines].join("\n") }],
+        structuredContent: { liquidations: rows },
       };
     },
   );

@@ -75,6 +75,28 @@ export class TradingClient {
     await this.del<void>(`/api/v1/market/alert?id=${id}`);
   }
 
+  async getOIHistory(symbol: string, period = "15m", limit = 50): Promise<any[]> {
+    return this.get<any[]>(
+      `/api/v1/market/oi_history?symbol=${symbol}&period=${period}&limit=${limit}`,
+    );
+  }
+
+  async getLiquidations(opts: {
+    symbol?: string;
+    minutes?: number;
+    limit?: number;
+    minNotional?: number;
+    summary?: boolean;
+  } = {}): Promise<any[]> {
+    const p = new URLSearchParams();
+    if (opts.symbol) p.set("symbol", opts.symbol);
+    p.set("minutes", String(opts.minutes ?? 60));
+    p.set("limit", String(opts.limit ?? 50));
+    if (opts.minNotional) p.set("min_notional", String(opts.minNotional));
+    if (opts.summary) p.set("summary", "true");
+    return this.get<any[]>(`/api/v1/market/liquidations?${p.toString()}`);
+  }
+
   async getTicker(symbol: string): Promise<Ticker> {
     return this.get<Ticker>(`/api/v1/market/ticker?symbol=${symbol}`);
   }

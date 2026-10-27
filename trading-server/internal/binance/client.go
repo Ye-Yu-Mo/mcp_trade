@@ -133,6 +133,19 @@ func (k klineRaw) toKline() (Kline, error) {
 	if v, ok := k[6].(float64); ok {
 		kl.CloseTime = int64(v)
 	}
+	// [7] quote volume, [8] trade count, [9] taker buy base, [10] taker buy quote
+	if v, ok := k[7].(string); ok {
+		kl.QuoteVolume, _ = strconv.ParseFloat(v, 64)
+	}
+	if v, ok := k[8].(float64); ok {
+		kl.Trades = int64(v)
+	}
+	if v, ok := k[9].(string); ok {
+		kl.TakerBuyVolume, _ = strconv.ParseFloat(v, 64)
+	}
+	if v, ok := k[10].(string); ok {
+		kl.TakerBuyQuoteVolume, _ = strconv.ParseFloat(v, 64)
+	}
 	return kl, nil
 }
 
@@ -1019,6 +1032,52 @@ func (c *Client) GetFundingRate(symbol string) (float64, int64, error) {
 	}
 	rate, _ := strconv.ParseFloat(raw.LastFundingRate, 64)
 	return rate, raw.NextFundingTime, nil
+}
+
+// OpenInterestPoint is one bucket of the open-interest history series.
+type OpenInterestPoint struct {
+	Time              int64   `json:"time"`
+	OpenInterest      float64 `json:"open_interest"`
+	OpenInterestValue float64 `json:"open_interest_value"`
+}
+
+type openInterestHistRaw struct {
+	Symbol               string `json:"symbol"`
+	SumOpenInterest      string `json:"sumOpenInterest"`
+	SumOpenInterestValue string `json:"sumOpenInterestValue"`
+	Timestamp            int64  `json:"timestamp"`
+}
+
+// GetOpenInterestHistory returns OI buckets from /futures/data/openInterestHist.
+// period is one of 5m,15m,30m,1h,2h,4h,6h,12h,1d; Binance keeps 30 days.
+// Rising OI with falling price means new shorts/longs are still entering —
+// a pullback with falling OI is the healthier kind.
+func (c *Client) GetOpenInterestHistory(symbol, period string, limit int) ([]OpenInterestPoint, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	if period == "" {
+		period = "15m"
+	}
+	params := url.Values{}
+	params.Set("symbol", strings.ToUpper(symbol))
+	params.Set("period", period)
+	params.Set("limit", strconv.Itoa(limit))
+	body, err := c.get(context.Background(), "/futures/data/openInterestHist", params, false)
+	if err != nil {
+		return nil, err
+	}
+	var raw []openInterestHistRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse oi history: %w", err)
+	}
+	out := make([]OpenInterestPoint, 0, len(raw))
+	for _, r := range raw {
+		oi, _ := strconv.ParseFloat(r.SumOpenInterest, 64)
+		val, _ := strconv.ParseFloat(r.SumOpenInterestValue, 64)
+		out = append(out, OpenInterestPoint{Time: r.Timestamp, OpenInterest: oi, OpenInterestValue: val})
+	}
+	return out, nil
 }
 
 // GetOpenInterest returns the current open interest for a symbol.

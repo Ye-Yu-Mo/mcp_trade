@@ -9,7 +9,18 @@ type Kline struct {
 	Close     float64 // 收盘价
 	Volume    float64 // 成交量
 	CloseTime int64   // K线结束时间 (Unix ms)
+
+	// Order-flow fields. TakerBuyVolume is the part of Volume that hit the
+	// ask (aggressive buys). Delta = 2*TakerBuyVolume - Volume tells you
+	// whether a move had buyers behind it or was short covering.
+	QuoteVolume         float64
+	Trades              int64
+	TakerBuyVolume      float64
+	TakerBuyQuoteVolume float64
 }
+
+// Delta returns taker buy minus taker sell volume (both in base units).
+func (k Kline) Delta() float64 { return 2*k.TakerBuyVolume - k.Volume }
 
 // Ticker represents the latest price for a symbol.
 type Ticker struct {
