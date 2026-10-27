@@ -45,6 +45,7 @@ type orderParams struct {
 	TakeProfit    float64
 	RiskPct       float64
 	Leverage      float64
+	ExpireMinutes float64 // 限价挂单自动撤销时间（分钟，0 = GTC）
 	ReduceOnly    bool
 	ClosePosition bool
 	EntryReason   string
@@ -82,6 +83,7 @@ type orderPreviewResponse struct {
 	Available     float64  `json:"available"`
 	OpenRisk      float64  `json:"open_risk"`
 	OpenPositions int      `json:"open_positions"`
+	ExpireAt      int64    `json:"expire_at,omitempty"`
 	DailyPnL      float64  `json:"daily_pnl"`
 	Risk          riskView `json:"risk"`
 }
@@ -119,6 +121,13 @@ func (h *OrderHandler) HandlePlaceOrder(w http.ResponseWriter, r *http.Request) 
 	}
 	if p.Symbol == "" || p.Side == "" || p.Type == "" {
 		Error(w, http.StatusBadRequest, CodeMissingParam, "symbol, side, type are required")
+		return
+	}
+	// Expiry only makes sense for a resting limit entry; a market order fills
+	// immediately and a protective order must outlive the position.
+	if p.ExpireMinutes > 0 && (p.Type != "LIMIT" || p.ReduceOnly || p.ClosePosition) {
+		Error(w, http.StatusBadRequest, CodeInvalidParam,
+			"expire_minutes is only supported on LIMIT entries (not market, reduce-only or close orders)")
 		return
 	}
 
@@ -315,6 +324,7 @@ func (h *OrderHandler) evaluate(p orderParams) (orderPreviewResponse, error) {
 		Leverage:      d.Leverage,
 		ReduceOnly:    p.ReduceOnly,
 		ClosePosition: p.ClosePosition,
+		ExpireAt:      expireAt(p.ExpireMinutes),
 		Equity:        acct.Equity,
 		Available:     acct.Available,
 		OpenRisk:      acct.OpenRisk,
@@ -398,6 +408,7 @@ func (h *OrderHandler) execute(p orderParams, preview orderPreviewResponse) (*br
 		Setup:         p.Setup,
 		Tags:          p.Tags,
 		ClientOrderID: clientID,
+		ExpireAt:      expireAt(p.ExpireMinutes),
 	})
 	if err != nil {
 		return nil, err
@@ -962,6 +973,12 @@ func parseOrderParams(r *http.Request) (orderParams, error) {
 	if p.Leverage, err = optFloat(r, "leverage"); err != nil {
 		return p, fmt.Errorf("invalid leverage")
 	}
+	if p.ExpireMinutes, err = optFloat(r, "expire_minutes"); err != nil {
+		return p, fmt.Errorf("invalid expire_minutes")
+	}
+	if p.ExpireMinutes < 0 || p.ExpireMinutes > 10080 {
+		return p, fmt.Errorf("expire_minutes must be between 0 and 10080 (7 days)")
+	}
 	p.ReduceOnly = truthy(r.FormValue("reduce_only"))
 	p.ClosePosition = truthy(r.FormValue("close_position"))
 	return p, nil
@@ -991,7 +1008,8 @@ func samePlan(a, b orderParams) bool {
 		math.Abs(a.StopPrice-b.StopPrice) < eps &&
 		math.Abs(a.TakeProfit-b.TakeProfit) < eps &&
 		math.Abs(a.RiskPct-b.RiskPct) < eps &&
-		math.Abs(a.Leverage-b.Leverage) < eps
+		math.Abs(a.Leverage-b.Leverage) < eps &&
+		math.Abs(a.ExpireMinutes-b.ExpireMinutes) < eps
 }
 
 func (h *OrderHandler) prunePlansLocked() {
@@ -1017,4 +1035,13 @@ func newClientOrderID(prefix string) string {
 		return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 	}
 	return fmt.Sprintf("%s-%d-%s", prefix, time.Now().UnixMilli(), hex.EncodeToString(b))
+}
+
+// expireAt converts a minutes-from-now TTL into the absolute Unix-ms deadline
+// used by both the exchange (GTD goodTillDate) and the paper broker.
+func expireAt(minutes float64) int64 {
+	if minutes <= 0 {
+		return 0
+	}
+	return time.Now().Add(time.Duration(minutes * float64(time.Minute))).UnixMilli()
 }

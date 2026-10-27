@@ -103,6 +103,7 @@ export class TradingClient {
     takeProfit?: number;
     riskPct?: number;
     leverage?: number;
+    expireMinutes?: number;
     reduceOnly?: boolean;
     closePosition?: boolean;
     entryReason?: string;
@@ -120,6 +121,7 @@ export class TradingClient {
     if (params.takeProfit !== undefined) form.set("take_profit_price", String(params.takeProfit));
     if (params.riskPct !== undefined) form.set("risk_pct", String(params.riskPct));
     if (params.leverage !== undefined) form.set("leverage", String(params.leverage));
+    if (params.expireMinutes !== undefined) form.set("expire_minutes", String(params.expireMinutes));
     if (params.reduceOnly) form.set("reduce_only", "true");
     if (params.closePosition) form.set("close_position", "true");
     if (params.entryReason) form.set("entry_reason", params.entryReason);
@@ -139,6 +141,7 @@ export class TradingClient {
     takeProfit?: number;
     riskPct?: number;
     leverage?: number;
+    expireMinutes?: number;
     reduceOnly?: boolean;
     closePosition?: boolean;
     entryReason?: string;
@@ -157,6 +160,7 @@ export class TradingClient {
     if (params.takeProfit !== undefined) form.set("take_profit_price", String(params.takeProfit));
     if (params.riskPct !== undefined) form.set("risk_pct", String(params.riskPct));
     if (params.leverage !== undefined) form.set("leverage", String(params.leverage));
+    if (params.expireMinutes !== undefined) form.set("expire_minutes", String(params.expireMinutes));
     if (params.reduceOnly) form.set("reduce_only", "true");
     if (params.closePosition) form.set("close_position", "true");
     if (params.entryReason) form.set("entry_reason", params.entryReason);

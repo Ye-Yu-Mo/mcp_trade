@@ -477,8 +477,15 @@ func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
 		params.Set("reduceOnly", "true")
 	}
 	if orderType == "LIMIT" {
-		params.Set("timeInForce", "GTC")
 		params.Set("price", strconv.FormatFloat(req.Price, 'f', -1, 64))
+		if req.ExpireAt > 0 {
+			// GTD lets the venue itself drop the order at the deadline; a
+			// server-side sweep alone would leave it resting if this process is down.
+			params.Set("timeInForce", "GTD")
+			params.Set("goodTillDate", strconv.FormatInt(req.ExpireAt, 10))
+		} else {
+			params.Set("timeInForce", "GTC")
+		}
 	}
 
 	body, err := c.request(context.Background(), http.MethodPost, "/fapi/v1/order", params, true)
@@ -491,6 +498,7 @@ func (c *Client) CreateOrder(req NewOrderRequest) (*Order, error) {
 		return nil, fmt.Errorf("parse order: %w", err)
 	}
 	order := raw.toOrder()
+	order.ExpireAt = req.ExpireAt
 	// Some venue/edge responses still ACK a market order (status=NEW,
 	// executedQty=0). Re-query once so callers never mistake a filled entry
 	// for an unfilled one.

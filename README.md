@@ -161,6 +161,16 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 - `quantity`：直接给数量，服务端校验风险不超过上限。
 - `risk_pct`：只给风险百分比和止损价，服务端按 `权益 × risk_pct / |入场-止损|` 计算数量，并向下取整到 step size。
 
+### 限价挂单过期（`expire_minutes`）
+
+限价开仓可以带 `expire_minutes`（分钟，0–10080，留空 = GTC 一直有效）：
+
+- **实盘**：转成交易所原生的 `timeInForce=GTD` + `goodTillDate`，到期由币安自己撤单，服务进程挂了也照样生效。
+- **纸面**：`paperOrder.expire_at` 落盘，broker 每秒扫描，到点把订单置为 `EXPIRED`。
+- 到期/手动撤单时，**为该入场单准备的止损/止盈会一起撤掉**——否则它们会留在盘上，等下一个不相关的仓位出现时突然触发。
+
+只对 `LIMIT` 开仓有效；市价单立即成交、保护单必须活到仓位结束，所以服务端会直接拒绝这两种用法。
+
 ## MCP 工具
 
 ### 行情 `market.*`
@@ -188,7 +198,7 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 ### 订单 `order.*`
 | 工具 | 说明 |
 |---|---|
-| `order.place` | 两步下单：预览 → `confirm=true + plan_id` 执行；自动挂止损/止盈 |
+| `order.place` | 两步下单：预览 → `confirm=true + plan_id` 执行；自动挂止损/止盈；`expire_minutes` 让限价挂单到点自动撤销 |
 | `order.close` | 市价平仓（可部分），同时撤销保护单 |
 | `order.cancel` | 撤单 |
 | `order.list` | 挂单列表 |
@@ -223,7 +233,7 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 | POST/GET/DELETE | `/api/v1/market/alert` | 价格提醒 |
 | GET | `/api/v1/account/balance` | 余额 |
 | GET | `/api/v1/account/positions` | 持仓 |
-| POST | `/api/v1/order/place` | 预览/下单（Plan/Apply） |
+| POST | `/api/v1/order/place` | 预览/下单（Plan/Apply，支持 `expire_minutes`） |
 | POST | `/api/v1/order/close` | 市价平仓 |
 | POST | `/api/v1/order/modify_stop` | 修改止损 |
 | DELETE | `/api/v1/order/cancel` | 撤单 |
@@ -276,6 +286,7 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 |---|---|---|---|
 | `mcp-trade` | 8877 | mainnet | 实盘执行；当前空仓，等待策略验证后才使用 |
 | `mcp-trade-paper` | 8878 | paper | 24/7 纸面验证；模拟止损/止盈由 VPS 持续运行 |
+| `mcp-trade-paper-5m` | 8879 | paper | 5m 策略独立纸面账户 |
 
 两者都只绑定 `127.0.0.1`，通过 SSH 隧道访问：
 
@@ -283,6 +294,31 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 ssh -N -L 8877:127.0.0.1:8877 root@your-vps
 ssh -N -L 8878:127.0.0.1:8878 root@your-vps
 ```
+
+### 隧道自动维护（macOS）
+
+手工 `ssh -N -L` 会断，而且最坑的坏法是**进程活着但转发已经死了**——所有 MCP 工具直接 `fetch failed`。所以做了两层：
+
+1. `~/Library/LaunchAgents/com.jasxu.mcp-trade-tunnel.plist`
+   `ssh -N` 同时转发 8877/8878/8879，带 `ExitOnForwardFailure=yes`、`ServerAliveInterval=30`、`KeepAlive`。端口被占就失败退出，让 launchd 重启。
+2. `~/Library/LaunchAgents/com.jasxu.mcp-trade-tunnel-watch.plist`
+   每 120 秒跑 `scripts/trade-tunnel-watch.sh`：用 `nc -z` 检查三个端口是否**真的在监听**，发现死端口就 `launchctl kickstart -k` 重启隧道。
+
+安装：
+
+```bash
+cp ~/Library/LaunchAgents/com.jasxu.mcp-trade-tunnel*.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jasxu.mcp-trade-tunnel.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jasxu.mcp-trade-tunnel-watch.plist
+```
+
+如果更想用 crontab（launchd 之外的第二选择，定时器语义相同）：
+
+```cron
+*/2 * * * * /Users/jasxu/Documents/m_trade/scripts/trade-tunnel-watch.sh
+```
+
+> 合盖休眠时两者都不会运行，唤醒后 launchd 会立刻拉起隧道；cron 要等下一个 2 分钟周期。
 
 项目 `.mcp.json` 同时配置：
 
@@ -325,6 +361,8 @@ cd mcp-server && npm run build
 - [x] 部分平仓保留保护单
 - [x] 启动时对账 OPEN 交易与交易所持仓
 - [x] 日/周亏损改为权益基线（含未实现）
+- [x] 限价挂单过期（实盘 GTD / 纸面扫描），到期连带撤掉括号保护单
+- [x] 本地隧道自愈（launchd + 端口级看门狗）
 - [ ] 服务端事件流（提醒/止损接近/资金费率）与主动通知
 - [ ] 回测/重放 + 数据记录
 - [ ] 实盘限价开仓的成交后自动保护

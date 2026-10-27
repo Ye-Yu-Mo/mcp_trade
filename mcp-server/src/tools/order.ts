@@ -12,6 +12,7 @@ type PlanParams = {
   takeProfit?: number;
   riskPct?: number;
   leverage?: number;
+  expireMinutes?: number;
   reduceOnly?: boolean;
   closePosition?: boolean;
   entryReason?: string;
@@ -45,6 +46,10 @@ export function registerOrderTools(server: any, client: TradingClient) {
         stop_price: z.number().optional().describe("止损触发价（开仓必填）"),
         take_profit_price: z.number().optional().describe("止盈触发价（可选）"),
         leverage: z.number().optional().describe("杠杆，默认服务端上限（通常 5x）"),
+        expire_minutes: z
+          .number()
+          .optional()
+          .describe("限价挂单多少分钟后自动撤销（0-10080，留空 = GTC 一直有效）。只对 LIMIT 开仓有效"),
         reduce_only: z.boolean().optional().describe("仅减仓"),
         close_position: z.boolean().optional().describe("平掉整个仓位"),
         entry_reason: z.string().optional().describe("入场理由，写入交易日志"),
@@ -64,6 +69,7 @@ export function registerOrderTools(server: any, client: TradingClient) {
       stop_price?: number;
       take_profit_price?: number;
       leverage?: number;
+      expire_minutes?: number;
       reduce_only?: boolean;
       close_position?: boolean;
       entry_reason?: string;
@@ -96,6 +102,7 @@ export function registerOrderTools(server: any, client: TradingClient) {
         takeProfit: args.take_profit_price,
         riskPct: args.risk_pct,
         leverage: args.leverage,
+        expireMinutes: args.expire_minutes,
         reduceOnly: args.reduce_only,
         closePosition: args.close_position,
         entryReason: args.entry_reason,
@@ -339,6 +346,7 @@ function formatPreview(p: OrderPreview): string {
     `| Entry | ${p.price ? "$" + fmt(p.price) : "market"} |`,
     `| Stop | ${p.stop_price ? "$" + fmt(p.stop_price) : "—"} |`,
     `| Take Profit | ${p.take_profit ? "$" + fmt(p.take_profit) : "—"} |`,
+    `| Expires | ${p.expire_at ? new Date(p.expire_at).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "GTC"} |`,
     `| Notional | $${fmt(p.notional)} |`,
     `| Risk | $${fmt(p.risk_amount)} (${fmt(p.risk_pct)}% of equity) |`,
     `| Margin @ ${fmt(p.leverage)}x | $${fmt(p.margin)} |`,

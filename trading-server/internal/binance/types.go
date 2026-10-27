@@ -64,6 +64,7 @@ type NewOrderRequest struct {
 	WorkingType     string  // MARK_PRICE / CONTRACT_PRICE，默认 CONTRACT_PRICE
 	ActivationPrice float64 // TRAILING_STOP_MARKET 激活价（可选）
 	CallbackRate    float64 // TRAILING_STOP_MARKET 回调比例（百分比，如 1.0 = 1%）
+	ExpireAt        int64   // 限价单自动撤销时间（Unix ms，0 = GTC）。实盘用 GTD，纸面盘由 broker 扫描
 
 	// Metadata used by the paper broker and trade journal. The live client
 	// ignores these fields.
@@ -104,6 +105,7 @@ type Order struct {
 	ReduceOnly    bool    `json:"reduceOnly"`
 	ClosePosition bool    `json:"closePosition"`
 	IsAlgo        bool    `json:"isAlgo,omitempty"`
+	ExpireAt      int64   `json:"expireAt,omitempty"`
 	UpdateTime    int64   `json:"updateTime"`
 }
 

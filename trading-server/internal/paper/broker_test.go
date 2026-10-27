@@ -4,6 +4,7 @@ import (
 	"math"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/store"
@@ -206,6 +207,53 @@ func TestLimitEntryFillsWhenPriceCrosses(t *testing.T) {
 	trades, _ := st.QueryTrades("BTCUSDT", 10)
 	if len(trades) != 1 || trades[0].Status != "OPEN" || trades[0].StopPrice != 63000 {
 		t.Fatalf("unexpected trade record: %+v", trades)
+	}
+}
+
+func TestExpiredLimitEntryDropsItsBracket(t *testing.T) {
+	b, fm, _ := newTestBroker(t)
+
+	entry, err := b.CreateOrder(binance.NewOrderRequest{
+		Symbol: "BTCUSDT", Side: "SELL", OrderType: "LIMIT", Quantity: 0.01,
+		Price: 66500, StopPrice: 67000, TakeProfit: 65000, Leverage: 5, RiskAmount: 10,
+		ExpireAt: time.Now().Add(time.Minute).UnixMilli(),
+	})
+	if err != nil {
+		t.Fatalf("limit entry: %v", err)
+	}
+	stop, err := b.CreateOrder(binance.NewOrderRequest{
+		Symbol: "BTCUSDT", Side: "BUY", OrderType: "STOP_MARKET",
+		StopPrice: 67000, ClosePosition: true,
+	})
+	if err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	// Nothing has expired yet and price has not reached the entry.
+	b.mu.Lock()
+	b.checkOrdersLocked()
+	b.mu.Unlock()
+	if got, _ := b.GetOrder("BTCUSDT", entry.OrderID); got.Status != "NEW" {
+		t.Fatalf("entry status = %s, want NEW before deadline", got.Status)
+	}
+
+	// Let the deadline pass. Price never returned to 66500.
+	b.mu.Lock()
+	b.expireOrdersLocked(time.Now().Add(2 * time.Minute).UnixMilli())
+	b.mu.Unlock()
+	b.refreshPrices()
+	_ = fm
+
+	if got, _ := b.GetOrder("BTCUSDT", entry.OrderID); got.Status != "EXPIRED" {
+		t.Fatalf("entry status = %s, want EXPIRED", got.Status)
+	}
+	// The stop existed only to protect that entry; it must not outlive it.
+	if got, _ := b.GetOrder("BTCUSDT", stop.OrderID); got.Status != "CANCELED" {
+		t.Fatalf("stop status = %s, want CANCELED with its entry", got.Status)
+	}
+	positions, _ := b.GetPositions()
+	if len(positions) != 0 {
+		t.Fatalf("expiry must not create a position: %+v", positions)
 	}
 }
 

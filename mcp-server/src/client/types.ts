@@ -85,6 +85,7 @@ export interface OrderPreview {
   available: number;
   open_risk: number;
   open_positions: number;
+  expire_at?: number;
   daily_pnl: number;
   risk: {
     passed: boolean;

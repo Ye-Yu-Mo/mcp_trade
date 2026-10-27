@@ -75,6 +75,7 @@ type paperOrder struct {
 	ReduceOnly    bool       `json:"reduce_only"`
 	ClosePosition bool       `json:"close_position"`
 	ClientOrderID string     `json:"client_order_id"`
+	ExpireAt      int64      `json:"expire_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	FilledAt      *time.Time `json:"filled_at,omitempty"`
 
@@ -401,6 +402,7 @@ func (b *Broker) CreateOrder(req binance.NewOrderRequest) (*binance.Order, error
 		ReduceOnly:    req.ReduceOnly,
 		ClosePosition: req.ClosePosition,
 		ClientOrderID: req.ClientOrderID,
+		ExpireAt:      req.ExpireAt,
 		CreatedAt:     time.Now().UTC(),
 		TakeProfit:    req.TakeProfit,
 		Leverage:      req.Leverage,
@@ -478,6 +480,10 @@ func (b *Broker) CancelOrder(symbol string, orderID int64) (*binance.Order, erro
 	if o.Status == "NEW" {
 		o.Status = "CANCELED"
 		b.dirty = true
+		if !o.ClosePosition && !o.ReduceOnly {
+			// Cancelling the entry must take its waiting stop/TP with it.
+			b.cancelOrphanBracketLocked(o.Symbol)
+		}
 		b.saveLocked()
 	}
 	return o.toOrder(), nil
@@ -743,6 +749,7 @@ func (b *Broker) checkLiquidationLocked() {
 }
 
 func (b *Broker) checkOrdersLocked() {
+	b.expireOrdersLocked(time.Now().UnixMilli())
 	// Process in placement order: an entry LIMIT (lower ID) must fill before
 	// its protective stop/TP is evaluated, otherwise a gap could cancel the
 	// stop while the entry fills unprotected.
@@ -755,6 +762,40 @@ func (b *Broker) checkOrdersLocked() {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	for _, id := range ids {
 		b.checkOrderLocked(b.st.Orders[id])
+	}
+}
+
+// expireOrdersLocked cancels resting entry orders whose deadline has passed and
+// removes the bracket that was waiting for them. Left behind, that bracket would
+// sit on the symbol with no position and fire into whatever comes next.
+func (b *Broker) expireOrdersLocked(nowMs int64) {
+	for _, o := range b.st.Orders {
+		if o.Status != "NEW" || o.ExpireAt <= 0 || nowMs < o.ExpireAt {
+			continue
+		}
+		o.Status = "EXPIRED"
+		b.dirty = true
+		if !o.ClosePosition && !o.ReduceOnly {
+			b.cancelOrphanBracketLocked(o.Symbol)
+		}
+	}
+}
+
+// cancelOrphanBracketLocked drops protective orders for a symbol that has no
+// position — they exist only to protect an entry that never filled.
+func (b *Broker) cancelOrphanBracketLocked(symbol string) {
+	if b.st.Positions[symbol] != nil {
+		return
+	}
+	for _, o := range b.st.Orders {
+		if o.Symbol != symbol || o.Status != "NEW" {
+			continue
+		}
+		if o.ClosePosition || o.ReduceOnly ||
+			strings.Contains(o.Type, "STOP") || strings.Contains(o.Type, "TAKE_PROFIT") {
+			o.Status = "CANCELED"
+			b.dirty = true
+		}
 	}
 }
 
@@ -879,6 +920,7 @@ func (o *paperOrder) toOrder() *binance.Order {
 		StopPrice:     o.StopPrice,
 		ReduceOnly:    o.ReduceOnly,
 		ClosePosition: o.ClosePosition,
+		ExpireAt:      o.ExpireAt,
 		UpdateTime:    t,
 	}
 }
