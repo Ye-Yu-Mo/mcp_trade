@@ -35,6 +35,46 @@ export function registerTradeTools(server: any, client: TradingClient) {
     },
   );
 
+  // --- trade.exchange ---
+  server.registerTool(
+    "trade.exchange",
+    {
+      description:
+        "拉取交易所账户的原始资金流水（REALIZED_PNL / COMMISSION / FUNDING_FEE 等）。" +
+        "直接在币安手动下的单不会写进 trade.history，只能从这里看到。仅实盘可用，纸面盘会报错。",
+      inputSchema: {
+        hours: z.number().default(48).describe("回看小时数，默认 48"),
+        symbol: z.string().optional().describe("交易对，留空查所有"),
+        limit: z.number().default(200).describe("返回条数上限"),
+      },
+    },
+    async (args: { hours?: number; symbol?: string; limit?: number }) => {
+      const rows = await client.getExchangeIncome(args.hours ?? 48, args.symbol, args.limit ?? 200);
+      if (rows.length === 0) {
+        return {
+          content: [{ type: "text" as const, text: "No exchange income records." }],
+          structuredContent: { records: [] },
+        };
+      }
+      const header = "| Time (UTC) | Symbol | Type | Income |";
+      const sep = "|---|---|---|---|";
+      const lines = rows.map((r: any) => {
+        const t = new Date(r.time).toISOString().replace("T", " ").slice(0, 16);
+        return `| ${t} | ${r.symbol || "-"} | ${r.incomeType} | ${r.income.toFixed(5)} |`;
+      });
+      const net = rows.reduce((a: number, r: any) => a + (r.income ?? 0), 0);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: [header, sep, ...lines, "", `**Net: ${net.toFixed(5)} USDT** (${rows.length} records)`].join("\n"),
+          },
+        ],
+        structuredContent: { records: rows, net },
+      };
+    },
+  );
+
   // --- trade.journal ---
   server.registerTool(
     "trade.journal",

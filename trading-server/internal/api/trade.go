@@ -4,17 +4,20 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/binance"
 	"github.com/ye-yu-mo/mcp-trade/trading-server/internal/store"
 )
 
 // TradeHandler handles trade journal endpoints.
 type TradeHandler struct {
-	store *store.Store
+	store  *store.Store
+	client binance.Trader
+	paper  bool
 }
 
 // NewTradeHandler creates a TradeHandler.
-func NewTradeHandler(st *store.Store) *TradeHandler {
-	return &TradeHandler{store: st}
+func NewTradeHandler(st *store.Store, client binance.Trader, paper bool) *TradeHandler {
+	return &TradeHandler{store: st, client: client, paper: paper}
 }
 
 // HandleHistory handles GET /api/v1/trade/history
@@ -64,6 +67,41 @@ func (h *TradeHandler) HandleJournal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]int64{"id": id})
+}
+
+// HandleExchangeIncome handles GET /api/v1/trade/exchange — income records
+// straight from the venue. Trades placed outside this system (manually on
+// Binance) never reach our DB, but they do appear here.
+func (h *TradeHandler) HandleExchangeIncome(w http.ResponseWriter, r *http.Request) {
+	if h.paper {
+		Error(w, http.StatusBadRequest, CodeInvalidParam, "paper mode has no exchange income records")
+		return
+	}
+	getter, ok := h.client.(interface {
+		GetIncome(symbol, incomeType string, startTime, endTime int64, limit int) ([]binance.Income, error)
+	})
+	if !ok {
+		Error(w, http.StatusInternalServerError, CodeNoCache, "exchange client does not expose income records")
+		return
+	}
+
+	q := r.URL.Query()
+	startTime, _ := strconv.ParseInt(q.Get("start_time"), 10, 64)
+	endTime, _ := strconv.ParseInt(q.Get("end_time"), 10, 64)
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+
+	records, err := getter.GetIncome(q.Get("symbol"), q.Get("income_type"), startTime, endTime, limit)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, CodeBinanceError, err.Error())
+		return
+	}
+	if records == nil {
+		records = []binance.Income{}
+	}
+	JSON(w, http.StatusOK, records)
 }
 
 // HandlePerformance handles GET /api/v1/trade/performance

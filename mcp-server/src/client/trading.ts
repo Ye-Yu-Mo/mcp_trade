@@ -204,6 +204,13 @@ export class TradingClient {
     return this.get<TradeRecord[]>(path);
   }
 
+  async getExchangeIncome(hours = 48, symbol?: string, limit = 500): Promise<any[]> {
+    const start = Date.now() - hours * 3600_000;
+    let path = `/api/v1/trade/exchange?start_time=${Math.floor(start)}&limit=${limit}`;
+    if (symbol) path += `&symbol=${symbol}`;
+    return this.get<any[]>(path);
+  }
+
   async postJournal(entryType: string, reason: string, tags?: string, tradeId?: number): Promise<{ id: number }> {
     const form = new URLSearchParams();
     form.set("entry_type", entryType);

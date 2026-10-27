@@ -345,6 +345,71 @@ func (c *Client) GetUserTrades(symbol string, startTime int64, limit int) ([]Use
 	return out, nil
 }
 
+// Income is one entry of /fapi/v1/income: realized PnL, commission, funding,
+// etc. It is the only cross-symbol account ledger Binance exposes, so it is
+// what lets us reconstruct trades placed outside this system.
+type Income struct {
+	Symbol     string  `json:"symbol"`
+	IncomeType string  `json:"incomeType"`
+	Income     float64 `json:"income"`
+	Asset      string  `json:"asset"`
+	Time       int64   `json:"time"`
+	Info       string  `json:"info"`
+	TranID     int64   `json:"tranId"`
+	TradeID    string  `json:"tradeId"`
+}
+
+type incomeRaw struct {
+	Symbol     string `json:"symbol"`
+	IncomeType string `json:"incomeType"`
+	Income     string `json:"income"`
+	Asset      string `json:"asset"`
+	Time       int64  `json:"time"`
+	Info       string `json:"info"`
+	TranID     int64  `json:"tranId"`
+	TradeID    string `json:"tradeId"`
+}
+
+// GetIncome returns account income records. symbol may be empty to cover every
+// symbol; incomeType may be empty to cover every type. With neither startTime
+// nor endTime, Binance returns the last 7 days.
+func (c *Client) GetIncome(symbol, incomeType string, startTime, endTime int64, limit int) ([]Income, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	params := url.Values{}
+	if symbol != "" {
+		params.Set("symbol", strings.ToUpper(symbol))
+	}
+	if incomeType != "" {
+		params.Set("incomeType", incomeType)
+	}
+	if startTime > 0 {
+		params.Set("startTime", strconv.FormatInt(startTime, 10))
+	}
+	if endTime > 0 {
+		params.Set("endTime", strconv.FormatInt(endTime, 10))
+	}
+	params.Set("limit", strconv.Itoa(limit))
+	body, err := c.get(context.Background(), "/fapi/v1/income", params, true)
+	if err != nil {
+		return nil, err
+	}
+	var raw []incomeRaw
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse income: %w", err)
+	}
+	out := make([]Income, 0, len(raw))
+	for _, r := range raw {
+		amount, _ := strconv.ParseFloat(r.Income, 64)
+		out = append(out, Income{
+			Symbol: r.Symbol, IncomeType: r.IncomeType, Income: amount,
+			Asset: r.Asset, Time: r.Time, Info: r.Info, TranID: r.TranID, TradeID: r.TradeID,
+		})
+	}
+	return out, nil
+}
+
 // GetOrderBook returns the order book depth for a symbol.
 // limit: 5, 10, 20, 50, 100, 500, 1000. Default 100.
 func (c *Client) GetOrderBook(symbol string, limit int) (*OrderBook, error) {

@@ -56,7 +56,7 @@ func NewRouter(marketData binance.Trader, trader binance.Trader, apiToken string
 		account := NewAccountHandler(trader)
 		account.cache = cache
 		order := NewOrderHandler(trader, riskMgr, st, paperMode)
-		trade := NewTradeHandler(st)
+		trade := NewTradeHandler(st, trader, paperMode)
 
 		r.Route("/market", func(r chi.Router) {
 			r.Get("/klines", market.HandleKlines)
@@ -92,6 +92,7 @@ func NewRouter(marketData binance.Trader, trader binance.Trader, apiToken string
 			r.Post("/journal", trade.HandleJournal)
 			r.Get("/journal", trade.HandleJournalList)
 			r.Get("/performance", trade.HandlePerformance)
+			r.Get("/exchange", trade.HandleExchangeIncome)
 		})
 	})
 

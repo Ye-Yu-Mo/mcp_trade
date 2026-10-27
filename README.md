@@ -212,6 +212,7 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 | `trade.history` | 持仓级交易记录（OPEN/CLOSED、R、setup） |
 | `trade.journal` / `trade.journal_list` | 经验记录 |
 | `trade.performance` | 胜率、盈亏比、期望 R、最大回撤（只统计 CLOSED） |
+| `trade.exchange` | 交易所原始流水（REALIZED_PNL / COMMISSION / FUNDING_FEE），用于查手动下的单；仅实盘 |
 
 ## API
 
@@ -242,6 +243,7 @@ SETUP_ACCOUNT=false   # 默认不改账户设置
 | GET | `/api/v1/trade/history` | 交易历史 |
 | POST/GET | `/api/v1/trade/journal` | 交易日志 |
 | GET | `/api/v1/trade/performance` | 绩效 |
+| GET | `/api/v1/trade/exchange` | 交易所资金流水（含手动交易的盈亏与手续费） |
 
 ## 环境变量
 
