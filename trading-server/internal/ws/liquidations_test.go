@@ -86,3 +86,25 @@ func TestParseForceOrderStoresLiquidation(t *testing.T) {
 		t.Fatalf("malformed payload stored extra entries: %d", n)
 	}
 }
+
+func TestLiquidationStoreDedupesDuplicateStreams(t *testing.T) {
+	s := NewLiquidationStore(10)
+	now := time.Now().UnixMilli()
+	l := Liquidation{Time: now, Symbol: "BTCUSDT", Side: "SELL", Price: 80000, Qty: 2, Notional: 160000}
+
+	// The same forced order arrives once from !forceOrder@arr and once from
+	// btcusdt@forceOrder — it must be counted once, not twice.
+	s.Add(l)
+	s.Add(l)
+	if n := len(s.List("", 0, 0, 10)); n != 1 {
+		t.Fatalf("duplicate stored: %d entries, want 1", n)
+	}
+
+	// A genuinely different liquidation at the same millisecond still counts.
+	l2 := l
+	l2.Qty = 3
+	s.Add(l2)
+	if n := len(s.List("", 0, 0, 10)); n != 2 {
+		t.Fatalf("distinct liquidation dropped: %d entries, want 2", n)
+	}
+}

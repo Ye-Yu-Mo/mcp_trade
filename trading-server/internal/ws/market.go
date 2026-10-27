@@ -44,7 +44,67 @@ func (m *MarketStream) Connected() bool { return m.connected.Load() }
 
 func (m *MarketStream) Start() {
 	go m.runWS()
+	go m.runLiquidationWS()
 	go m.runRESTPoll()
+}
+
+// runLiquidationWS keeps a dedicated connection to the delivery-market host.
+// The all-market liquidation stream moved there and reports merged UM+CM
+// entries; entries carrying st=2 (CM) are dropped because we only trade UM.
+//
+// Note the stream is a snapshot: each symbol pushes at most its latest
+// liquidation per 1000ms, so counts are a lower bound, not a full tally.
+func (m *MarketStream) runLiquidationWS() {
+	if strings.Contains(m.baseURL, "testnet") {
+		return // testnet has no liquidation feed
+	}
+	const url = "wss://dstream.binance.com/stream?streams=!forceOrder@arr"
+	backoff := 1 * time.Second
+	const maxBackoff = 60 * time.Second
+
+	for {
+		select {
+		case <-m.done:
+			return
+		default:
+		}
+
+		conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+		if err != nil {
+			log.Printf("ws liquidations: cannot connect (%v), retrying in %v", err, backoff)
+			time.Sleep(backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			continue
+		}
+		log.Printf("ws liquidations: connected to dstream")
+		backoff = 1 * time.Second
+
+		for {
+			select {
+			case <-m.done:
+				conn.Close()
+				return
+			default:
+			}
+			conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("ws liquidations: read: %v, reconnecting", err)
+				conn.Close()
+				break
+			}
+			m.parseWSMessage(msg)
+		}
+
+		time.Sleep(backoff)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
 }
 
 func (m *MarketStream) Stop() { close(m.done) }
@@ -68,8 +128,9 @@ func (m *MarketStream) runWS() {
 			s := strings.ToLower(sym)
 			streams = append(streams, s+"@bookTicker", s+"@kline_1h", s+"@depth20@100ms")
 		}
-		// All-market liquidations: no symbol prefix, one shared firehose.
-		streams = append(streams, "!forceOrder@arr")
+		// Liquidations are NOT subscribed here: !forceOrder@arr now lives on
+		// dstream.binance.com (merged UM+CM). Subscribing on fstream yields
+		// silence with no error — see runLiquidationWS.
 		wsURL := wsHost + "?streams=" + strings.Join(streams, "/")
 
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -251,7 +312,9 @@ func (m *MarketStream) parseEvent(streamName string, data json.RawMessage) {
 // liquidated; BUY = a short was.
 func (m *MarketStream) parseForceOrder(data json.RawMessage) {
 	var evt struct {
-		Order struct {
+		// st: 1 = UM (USDT-M), 2 = CM (coin-M). We only trade UM.
+		Universe string `json:"st"`
+		Order    struct {
 			Symbol   string `json:"s"`
 			Side     string `json:"S"`
 			Price    string `json:"p"`
@@ -261,6 +324,9 @@ func (m *MarketStream) parseForceOrder(data json.RawMessage) {
 		} `json:"o"`
 	}
 	if json.Unmarshal(data, &evt) != nil || evt.Order.Symbol == "" {
+		return
+	}
+	if evt.Universe == "2" {
 		return
 	}
 	price, _ := strconv.ParseFloat(evt.Order.Price, 64)

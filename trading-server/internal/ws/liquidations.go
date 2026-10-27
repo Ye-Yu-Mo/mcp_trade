@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -27,6 +28,9 @@ type LiquidationStore struct {
 	mu    sync.RWMutex
 	items []Liquidation
 	max   int
+	// seen dedupes the same forced order arriving twice — subscribing to both
+	// <symbol>@forceOrder and !forceOrder@arr delivers each event on both.
+	seen map[string]int64
 }
 
 // NewLiquidationStore creates a store that keeps at most max entries.
@@ -34,13 +38,28 @@ func NewLiquidationStore(max int) *LiquidationStore {
 	if max <= 0 {
 		max = 2000
 	}
-	return &LiquidationStore{items: make([]Liquidation, 0, max), max: max}
+	return &LiquidationStore{items: make([]Liquidation, 0, max), max: max, seen: make(map[string]int64)}
 }
 
 // Add appends one liquidation, dropping the oldest when full.
 func (s *LiquidationStore) Add(l Liquidation) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	key := fmt.Sprintf("%s|%d|%.8f|%.8f", l.Symbol, l.Time, l.Qty, l.Price)
+	if prev, ok := s.seen[key]; ok && l.Time-prev < 120_000 {
+		return
+	}
+	if len(s.seen) > 5000 {
+		cutoff := l.Time - 120_000
+		for k, t := range s.seen {
+			if t < cutoff {
+				delete(s.seen, k)
+			}
+		}
+	}
+	s.seen[key] = l.Time
+
 	if len(s.items) >= s.max {
 		copy(s.items, s.items[1:])
 		s.items = s.items[:len(s.items)-1]
