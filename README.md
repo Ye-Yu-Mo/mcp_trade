@@ -99,6 +99,18 @@ go run ./cmd/server
 
 重启 Claude Code 后，`mcp-trade` 工具才会加载。
 
+## 策略库
+
+策略文档在 [`docs/strategies/`](docs/strategies/README.md)：每个策略都有可操作规则、失效条件、记录字段和淘汰标准。
+
+| ID | 名称 | 状态 |
+|---|---|---|
+| `TB` | 趋势突破回踩 | 验证中 |
+| `RF` | 区间假突破反转 | 验证中 |
+| `EW` | 五浪推动 | 待启用 |
+| `CH` | 缠论三类买卖点 | 待启用 |
+| `PF` | 拉盘退潮做空 | 禁用 |
+
 ## 运行模式
 
 通过 `TRADE_ENV` 选择：
